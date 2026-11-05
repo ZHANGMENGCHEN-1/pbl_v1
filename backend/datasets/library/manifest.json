@@ -1,0 +1,80 @@
+{
+  "library_sample_1d": {
+    "name": "五本书的借阅次数",
+    "file": "library_sample_1d.xlsx",
+    "features": [
+      "borrow_count"
+    ],
+    "source": "根据用户提供的《无监督学习2》PDF 第7页录入的教学样本",
+    "demo": false,
+    "activities": [
+      "group_books",
+      "explain_algorithm",
+      "explore_2d",
+      "recommend_purchase"
+    ]
+  },
+  "library_sample_2d": {
+    "name": "五本书的二维数据",
+    "file": "library_sample_2d.xlsx",
+    "features": [
+      "borrow_count",
+      "borrow_days"
+    ],
+    "source": "根据用户提供的《无监督学习2》PDF 第13页录入的教学样本",
+    "demo": false,
+    "activities": []
+  },
+  "reading_interest_survey": {
+    "name": "阅读兴趣调查 · 演示数据",
+    "file": "reading_interest_demo.xlsx",
+    "features": [
+      "content_preference",
+      "duration_preference"
+    ],
+    "source": "人工构造的30条教学演示数据，非真实学生调查；可替换同表头工作簿",
+    "demo": true,
+    "activities": []
+  },
+  "library_books_2d": {
+    "name": "部分图书馆书籍数据",
+    "file": "library_books_2d.xlsx",
+    "features": [
+      "borrow_count",
+      "borrow_days"
+    ],
+    "column_map": {
+      "借阅次数": "borrow_count",
+      "借阅时长": "borrow_days"
+    },
+    "source": "用户提供的《活动3.部分图书馆书籍数据.xlsx》；150条借阅记录，原表不含书名，行名为系统生成的记录编号。",
+    "demo": false,
+    "activities": [
+      "explore_2d",
+      "recommend_purchase"
+    ],
+    "field_definitions": {
+      "borrow_days": {
+        "label": "借阅时长",
+        "unit": "天"
+      }
+    }
+  },
+  "reading_interest_students": {
+    "name": "部分学生阅读兴趣调查数据",
+    "file": "reading_interest_students.xlsx",
+    "features": [
+      "content_preference",
+      "duration_preference"
+    ],
+    "column_map": {
+      "文艺<--书籍内容-->知识": "content_preference",
+      "较短<--阅读时长-->较长": "duration_preference"
+    },
+    "source": "用户提供的《活动4.部分学生阅读兴趣调查数据.xlsx》，100条调查记录；不包含具体书名，不代表全校学生。",
+    "demo": false,
+    "activities": [
+      "recommend_purchase"
+    ]
+  }
+}
