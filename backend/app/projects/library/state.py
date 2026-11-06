@@ -8,6 +8,7 @@ from .prompt import TEMPLATE, upgrade_saved_prompt
 
 
 def init():
+    from . import plans
     with store.connection() as db:
         db.executescript("""
         CREATE TABLE IF NOT EXISTS library_configs(session TEXT, activity TEXT, revision INTEGER, config TEXT, PRIMARY KEY(session,activity));
@@ -22,6 +23,7 @@ def init():
         CREATE INDEX IF NOT EXISTS library_submissions_session ON library_submissions(session,activity);
         CREATE INDEX IF NOT EXISTS library_analyses_session ON library_analyses(session,activity);
         """)
+    plans.init()
 
 
 def unlocked(db, session):
@@ -131,7 +133,8 @@ def get_state(session):
                 item["inherited_plan"] = inherited_plan(db,session,activity["id"])
 
             result.append(item)
-        return {"completed": count, "activities": result}
+        from .plans import latest
+        return {"completed": count, "activities": result, "plan_card": latest(db,session)}
 
 
 def analysis(db, session, activity, id):
@@ -142,8 +145,14 @@ def analysis(db, session, activity, id):
 
 
 def save_analysis(db, session, activity, revision, kind, result, run_id=None):
+    from .plans import latest
     id = str(uuid4())
-    result = {**result, "analysis_id": id}
+    plan=latest(db,session)
+    version=plan["version"] if plan else None
+    if run_id:
+        snapshot=db.execute("SELECT config FROM runs WHERE id=? AND session=? AND project=?",(run_id,session,PROJECT_ID)).fetchone()
+        if snapshot:version=json.loads(snapshot[0]).get("plan_version")
+    result = {**result, "analysis_id": id, "plan_version":version}
     db.execute("INSERT INTO library_analyses VALUES(?,?,?,?,?,?,?,?)", (id, session, activity, revision, kind, json.dumps(result, ensure_ascii=False), run_id, store.now()))
     return result
 

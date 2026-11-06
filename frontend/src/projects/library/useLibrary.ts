@@ -1,7 +1,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, runStream } from './api'
-import type { Activity, Analysis, Dataset, DatasetOption, Learning, LibraryConfig, LibraryRun, NodeId, Project, Result, ToolId } from './types'
+import { streamAnswer } from '../../shared/streamAnswer'
+import { shuffledSteps } from './promptOrder'
+import type { Activity, Analysis, Dataset, DatasetOption, Learning, LibraryConfig, LibraryRun, NodeId, PlanCardInput, Project, Result, ToolId } from './types'
 import type { Trace } from '../../shared/types'
 
 export const toolIds: ToolId[] = ['inspect_dataset', 'run_kmeans_analysis']
@@ -20,7 +22,7 @@ export function useLibrary() {
   const dirty = computed(() => !!config.value && saved.value !== JSON.stringify(config.value))
   const result = computed(() => analyses.value.find(a => a.id === selectedId.value)?.result)
   const finalEvidence=computed(()=>analyses.value.find(a=>a.kind==='full'&&a.run_id===finalRun.value&&a.revision===revision.value))
-  const latestAnswer = computed(() => events.value.findLast(e => e.type === 'final')?.data.answer as string | undefined)
+  const latestAnswer = computed(() => streamAnswer(events.value,active.value===3))
   const permitted = computed(() => activity.value?.tools || [])
   const completedRuns = computed(() => runs.value.filter(r => r.status === 'completed' && r.revision === revision.value))
   const statusNames: Record<string,string> = {completed:'已完成',error:'失败',running:'运行中',cancelled:'已停止',interrupted:'已中断'}
@@ -40,18 +42,25 @@ export function useLibrary() {
       const [c,d,options] = await Promise.all([api<{config:LibraryConfig;revision:number}>(`/config?activity_id=${id.value}`),api<Dataset>(`/activities/${id.value}/dataset`),api<DatasetOption[]>(`/activities/${id.value}/datasets`)])
       datasetOptions.value=options
       config.value=c.config; revision.value=c.revision; saved.value=JSON.stringify(c.config); dataset.value=d
+      if(active.value===1&&project.value?.prompt_scaffold){
+        const scaffold=project.value.prompt_scaffold
+        config.value.prompt_steps=shuffledSteps(scaffold.blocks.map(b=>b.id),c.config.prompt_steps)
+        config.value.system_prompt=scaffold.template
+      }
       await refreshEvidence()
       const payload=activity.value?.draft && Object.keys(activity.value.draft).length ? activity.value.draft : activity.value?.submission?.payload || {}
       form.value={...JSON.parse(JSON.stringify(payload)),plan:activity.value?.plan?.text || payload.plan || ''}; finalRun.value=payload.run_id || completedRuns.value[0]?.id || ''
       selectedId.value=analyses.value.some(a=>a.id===payload.analysis_id) ? payload.analysis_id : analyses.value[0]?.id || ''
-      events.value=[]; savedSnapshot.value=undefined; runStatus.value=''; selected.value='brain'; resetStates(); example()
-      if(active.value>=2&&finalRun.value)await reviewRun(finalRun.value,true)
+      events.value=[]; savedSnapshot.value=undefined; runStatus.value=''; selected.value='brain'; resetStates(); input.value=''
+      if(!form.value.group_counts)form.value.group_counts=[{group:0,count:undefined},{group:1,count:undefined}]
     } catch(e) { error.value=(e as Error).message; fail(e) } finally { busy.value=false }
   }
   async function load() {
     loading.value=true; error.value=''
     try {
-      const [p,l] = await Promise.all([api<Project>(''),api<Learning>('/learning')]); project.value=p; learning.value=l
+      const p=await api<Project>('');project.value=p
+      if(p.testing_reset_on_refresh)await api('/testing/reset-progress','POST')
+      const l=await api<Learning>('/learning');learning.value=l
       active.value=Math.min(l.completed,3); await loadActivity()
     } catch(e) { error.value=(e as Error).message } finally { loading.value=false }
   }
@@ -69,11 +78,11 @@ export function useLibrary() {
     try { await api(`/activities/${id.value}/draft`,'PUT',{payload:payload()}); if(!silent) ElMessage.success('交付草稿已保存'); return true }
     catch(e) { fail(e); return false }
   }
-  async function submitPlan(text:string) {
+  async function submitPlan(body:PlanCardInput) {
     saving.value=true
     try {
-      learning.value=await api<Learning>(`/activities/${id.value}/plan`,'POST',{text})
-      form.value.plan=learning.value.activities[active.value]?.plan?.text||text.trim(); collapsed.value=true
+      learning.value=await api<Learning>(`/activities/${id.value}/plan-card`,'POST',body)
+      form.value.plan=learning.value.activities[active.value]?.plan?.text||''; collapsed.value=true
       ElMessage.success('学习计划已保存，开始实验'); return true
     } catch(e) { fail(e); return false } finally { saving.value=false }
   }
@@ -84,13 +93,14 @@ export function useLibrary() {
     if(!(await saveDraft(true))) return
     active.value=index; await loadActivity()
   }
-  async function submit() {
+  async function submit(advance=true) {
     if(dirty.value && !(await saveConfig())) return false
     busy.value=true
     try {
       learning.value=await api<Learning>(`/activities/${id.value}/submit`,'POST',{payload:payload()})
       ElMessage.success(active.value===3 ? '采购方案与反思已提交' : '交付已提交，下一活动已解锁')
-      active.value=Math.min(active.value+1,3); await loadActivity(); return true
+      if(advance){active.value=Math.min(active.value+1,3); await loadActivity()}
+      return true
     } catch(e) { fail(e); return false } finally { busy.value=false }
   }
   async function analyze() {
@@ -140,7 +150,7 @@ export function useLibrary() {
     }
     if(event.type==='error') states.brain='error'
     if(event.type==='done') runStatus.value=event.data.status
-    if(event.type==='final'&&event.data.decision){form.value.purchases=JSON.parse(JSON.stringify(event.data.decision.purchases));form.value.rationale=event.data.decision.rationale}
+    if(event.type==='final'&&event.data.decision){form.value.purchases=event.data.decision.purchases.map((p:any)=>({group:p.group,type:'',quantity:undefined}));form.value.rationale='';form.value.reflection=''}
     if(event.type==='tool_result'&&event.data.tool==='inspect_dataset'&&event.data.status!=='error') {
       try {
         const value=typeof event.data.output==='string'?JSON.parse(event.data.output):event.data.output
@@ -163,7 +173,7 @@ export function useLibrary() {
       const value=await api<{events:Trace[];config:unknown;status:string}>(`/runs/${runId}`)
       events.value=value.events;runStatus.value=value.status;savedSnapshot.value=value.config;finalRun.value=runId;resetStates()
       const decision=value.events.findLast(e=>e.type==='final')?.data.decision
-      if(decision&&(!keepDraft||!Array.isArray(form.value.purchases))){form.value.purchases=JSON.parse(JSON.stringify(decision.purchases));form.value.rationale=decision.rationale}
+      if(decision&&(!keepDraft||!Array.isArray(form.value.purchases))){form.value.purchases=decision.purchases.map((p:any)=>({group:p.group,type:'',quantity:undefined}));form.value.rationale='';form.value.reflection=''}
     }catch(e){fail(e)}
   }
   async function showRun(runId:string){await reviewRun(runId);historyOpen.value=false}

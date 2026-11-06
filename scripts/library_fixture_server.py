@@ -45,6 +45,25 @@ class Handler(BaseHTTPRequestHandler):
             output = {"role":"assistant","content":None,"tool_calls":calls}
             reason = "tool_calls"
         value = {"id":"fixture-completion","object":"chat.completion","created":1,"model":"fixture-model","choices":[{"index":0,"message":output,"finish_reason":reason}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}
+        if body.get("stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            message = value["choices"][0]["message"]
+            deltas = []
+            if message.get("tool_calls"):
+                deltas.append({"tool_calls":[{"index":i,**call} for i,call in enumerate(message["tool_calls"])]})
+            else:
+                content=message.get("content", "")
+                deltas.extend({"content":content[i:i+8]} for i in range(0,len(content),8))
+            for delta in deltas:
+                chunk={"id":"fixture-stream","object":"chat.completion.chunk","created":1,"model":"test-model","choices":[{"index":0,"delta":delta,"finish_reason":None}]}
+                self.wfile.write(("data: "+json.dumps(chunk,ensure_ascii=False)+"\n\n").encode())
+                self.wfile.flush()
+            chunk["choices"]=[{"index":0,"delta":{},"finish_reason":value["choices"][0]["finish_reason"]}]
+            self.wfile.write(("data: "+json.dumps(chunk)+"\n\ndata: [DONE]\n\n").encode())
+            self.wfile.flush()
+            return
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -54,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     output = ROOT / "test-results"
     output.mkdir(exist_ok=True)
-    os.environ.update(DATABASE_PATH=str(output / f"library-browser-{uuid4().hex}.db"), LLM_API_KEY="fixture-not-a-key", LLM_BASE_URL="http://127.0.0.1:8899/v1", LLM_MODEL="fixture-model", LLM_MODELS="fixture-model")
+    os.environ.update(LIBRARY_RESET_ON_REFRESH=os.getenv("FIXTURE_RESET_ON_REFRESH","false"), DATABASE_PATH=str(output / f"library-browser-{uuid4().hex}.db"), LLM_API_KEY="fixture-not-a-key", LLM_BASE_URL="http://127.0.0.1:8899/v1", LLM_MODEL="fixture-model", LLM_MODELS="fixture-model")
     server = ThreadingHTTPServer(("127.0.0.1",8899),Handler)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     try:

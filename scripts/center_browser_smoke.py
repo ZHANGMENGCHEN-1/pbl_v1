@@ -1,3 +1,4 @@
+from browser_delivery_helpers import submit_first_result
 """Activity-one number-line flow, against isolated fixture backend/Vite."""
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -8,8 +9,9 @@ with sync_playwright() as p:
     errors=[]
     page.on("pageerror",lambda e:errors.append(str(e)))
     page.goto("http://127.0.0.1:5174/projects/library-recommendation")
-    page.locator('.library-plan-dialog textarea').fill('选择两个中心点，观察距离分组及中心如何变化直到稳定。')
-    page.get_by_role('button',name='提交计划，开始实验',exact=True).click()
+    page.locator('.plan-card input[value=read_first]').check()
+    page.locator('.plan-card input[value=evidence]').check()
+    page.locator('.plan-card button[type=submit]').click()
     expect(page.locator('.center-experiment')).to_be_visible()
     expect(page.locator('.center-experiment .el-table').first.locator('.el-table__body tr')).to_have_count(5)
     page.get_by_role('button',name='调用工具，计算一轮',exact=True).click()
@@ -17,11 +19,10 @@ with sync_playwright() as p:
     page.get_by_role('button',name='使用新中心，计算下一轮',exact=True).click()
     expect(page.locator('.center-experiment')).to_contain_text('5.667')
     page.get_by_role('button',name='使用新中心，计算下一轮',exact=True).click()
-    expect(page.locator('.library-stable-dialog')).to_contain_text('分组与中心已稳定，可以提交结果。')
+    expect(page.locator('.library-stable-dialog')).to_contain_text('分组与中心已稳定')
     page.reload()
-    expect(page.locator('.library-plan-dialog textarea')).to_have_value('选择两个中心点，观察距离分组及中心如何变化直到稳定。')
-    page.locator('.library-plan-dialog textarea').fill('重新选中心点，逐轮计算直到分组和中心稳定。')
-    page.get_by_role('button',name='提交计划，开始实验',exact=True).click()
+    expect(page.locator('.plan-card input[value=read_first]')).to_be_checked()
+    page.locator('.plan-card button[type=submit]').click()
     expect(page.locator('.center-experiment .el-table').first.locator('.el-table__body tr')).to_have_count(5)
     expect(page.locator('.library-stable-dialog')).not_to_be_visible()
     expect(page.get_by_role('button',name='调用工具，计算一轮',exact=True)).to_be_enabled()
@@ -32,9 +33,9 @@ with sync_playwright() as p:
     expect(page.locator('.center-experiment')).to_contain_text('5.667')
     page.get_by_role('button',name='使用新中心，计算下一轮',exact=True).click()
     expect(page.locator('.library-stable-dialog')).to_be_visible()
-    page.locator('.library-stable-dialog').get_by_role('button',name='确认',exact=True).click()
+    submit_first_result(page)
     expect(page.locator('.library-plan-dialog')).to_be_visible()
-    expect(page.locator('.inherited-plan')).to_contain_text('重新选中心点')
+    expect(page.locator('.plan-previous')).to_contain_text('先看清任务和材料')
     assert not errors,errors
     Path('test-results').mkdir(exist_ok=True)
     page.screenshot(path='test-results/center-experiment-next-activity.png')

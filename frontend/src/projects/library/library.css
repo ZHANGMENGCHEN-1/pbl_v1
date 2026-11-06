@@ -18,6 +18,7 @@
 .phase-label{font-size:13px;color:#7c659e}
 .library-lesson h2{font-size:16px;font-weight:700;margin:10px 0 15px;color:#354056}
 .library-lesson>p,.library-lesson .try-it{font-family:"Noto Serif SC","Songti SC","SimSun",serif;font-size:15px;font-weight:400;line-height:1.95;color:#4b5568}
+.library-lesson .try-it p{white-space:pre-line}
 .library-delivery{margin-top:25px;border-top:1px solid #e8eaf0;padding-top:20px}
 .library-delivery h3{font-size:16px;margin-bottom:18px;color:#354056}
 .library-delivery>.el-tag{margin-bottom:15px}
@@ -135,7 +136,24 @@
 .library-layout.center-mode.collapsed{grid-template-columns:52px 0 minmax(320px,1fr)}
 .center-mode .library-settings,.center-mode .library-right-divider,.center-mode .library-bottom-divider,.center-mode .library-execution{display:none}
 .center-mode .library-lab{overflow:auto}
+.library-layout.no-execution{grid-template-rows:minmax(280px,1fr)}
+.no-execution .library-learning,.no-execution .library-left-divider{grid-row:1}
 .library-plan-dialog .el-dialog__header{display:none}
 .prompt-delivery-preview{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8f6fc;border:1px solid #e3d8f4;border-radius:10px;padding:20px;font-family:inherit;font-size:16px;line-height:1.9;color:#475269}
 
 .inherited-plan{margin:20px 0;padding:16px 20px;background:#f6f2fc;border:1px solid #e2d7f2;border-radius:10px;color:#56506b}.inherited-plan p{white-space:pre-wrap;font-size:16px;line-height:1.85;margin-bottom:0;max-height:220px;overflow:auto}
+
+.student-result-row{display:flex;align-items:center;gap:20px;padding:18px;background:#f8f5fc;border:1px solid #e6dff0;border-radius:10px;margin:14px 0}.student-result-row .el-form-item{margin-bottom:0}.library-receipt-dialog{max-height:90dvh;display:flex;flex-direction:column}.library-receipt-dialog .el-dialog__body{overflow:auto}.library-receipt-dialog>p{font-size:16px}
+
+.lab-tabs button:disabled{opacity:.45;cursor:not-allowed}.submitted-visualization{margin-top:24px;padding-top:18px;border-top:1px solid #e7e1ef}.submitted-visualization h3{font-size:17px;color:#65468c}
+
+.library-floating-actions{position:fixed;right:24px;bottom:22px;z-index:100;display:flex;gap:8px;padding:12px;background:rgba(255,255,255,.97);border:1px solid #e4ddef;border-radius:16px;box-shadow:0 8px 30px #39215c24;backdrop-filter:blur(12px)}
+.library-floating-actions .el-button+.el-button{margin-left:0}
+.library-workspace .library-settings-scroll{padding-bottom:105px}
+.library-workspace .trace-output{padding-bottom:100px}
+.library-record-card{margin:20px 0;padding:20px;border:1px solid #e5ddef;background:#fcfbfe;border-radius:12px}
+.library-record-card h3{font-size:17px;color:#65468c;margin:0 0 12px}
+.library-record-card time{font-size:13px;color:#858096}
+.library-record-card p{font-size:16px;line-height:1.8;overflow-wrap:anywhere}
+.library-records-body{min-height:160px}
+@media(max-width:800px){.library-floating-actions{right:12px;bottom:12px;padding:8px;gap:5px}.library-floating-actions .el-button{padding:10px}}

@@ -1,5 +1,6 @@
 import asyncio
 import os
+from time import perf_counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from langchain.agents import create_agent
@@ -21,18 +22,32 @@ async def execute(config, user_input, *, tools, context):
                      model=config.model, temperature=config.temperature,
                      timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
                      max_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "1200")),
-                     max_retries=int(os.getenv("LLM_MAX_RETRIES", "0")), disable_streaming=True)
+                     max_retries=int(os.getenv("LLM_MAX_RETRIES", "0")), streaming=True, disable_streaming=False)
     agent = create_agent(model=llm, tools=tools,
                          system_prompt=config.system_prompt + "\n" + context + "\n回答要求：简洁直接，先给结论。普通回答不超过200个汉字，只给必要的数量、依据和局限；不要逐条复述原始数据、全部距离或每轮计算，不展开长篇推导。若任务要求JSON，保持指定JSON结构完整，解释字段用短句，不在JSON外重复回答。" + "\n当前北京时间：" + datetime.now(ZoneInfo("Asia/Shanghai")).isoformat())
     yield "llm_start", {"node": "brain", "message": "模型正在理解任务并选择工具"}
     answer = ""
+    pending = ""
+    last_delta = 0.0
     async with asyncio.timeout(float(os.getenv("RUN_TIMEOUT_SECONDS", "180"))):
         async for e in agent.astream_events({"messages": [{"role": "user", "content": user_input}]}, version="v2", config={"recursion_limit": 20}):
             kind = e["event"]
             data = e.get("data", {})
             if kind == "on_chat_model_start":
+                pending = ""
+                last_delta = 0.0
                 yield "llm_start", {"node": "brain", "message": "模型正在生成响应"}
+            elif kind == "on_chat_model_stream":
+                pending += text_content(getattr(data.get("chunk"), "content", ""))
+                now = perf_counter()
+                if pending and now - last_delta >= 0.08:
+                    yield "llm_delta", {"node": "brain", "text": pending}
+                    pending = ""
+                    last_delta = now
             elif kind == "on_chat_model_end":
+                if pending:
+                    yield "llm_delta", {"node": "brain", "text": pending}
+                    pending = ""
                 output = data.get("output")
                 calls = getattr(output, "tool_calls", [])
                 if not calls:

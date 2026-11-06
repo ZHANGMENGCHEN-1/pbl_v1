@@ -33,6 +33,25 @@ def test_real_langchain_tool_roundtrip(monkeypatch, tmp_path, external_api, fore
                 message = {"role": "assistant", "content": "根据工具返回的数据，可以练习制定观测计划。"}
                 reason = "stop"
             result = {"id": "chatcmpl-test", "object": "chat.completion", "created": 1, "model": "test-model", "choices": [{"index": 0, "message": message, "finish_reason": reason}], "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20}}
+            if body.get("stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                message = result["choices"][0]["message"]
+                deltas = []
+                if message.get("tool_calls"):
+                    deltas.append({"tool_calls":[{"index":i,**call} for i,call in enumerate(message["tool_calls"])]})
+                else:
+                    content=message.get("content", "")
+                    deltas.extend({"content":content[i:i+8]} for i in range(0,len(content),8))
+                for delta in deltas:
+                    chunk={"id":"fixture-stream","object":"chat.completion.chunk","created":1,"model":"test-model","choices":[{"index":0,"delta":delta,"finish_reason":None}]}
+                    self.wfile.write(("data: "+json.dumps(chunk,ensure_ascii=False)+"\n\n").encode())
+                    self.wfile.flush()
+                chunk["choices"]=[{"index":0,"delta":{},"finish_reason":result["choices"][0]["finish_reason"]}]
+                self.wfile.write(("data: "+json.dumps(chunk)+"\n\ndata: [DONE]\n\n").encode())
+                self.wfile.flush()
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -62,6 +81,9 @@ def test_real_langchain_tool_roundtrip(monkeypatch, tmp_path, external_api, fore
         assert kinds[-2:] == ["final", "done"]
         assert events[-2]["data"]["answer"].startswith("根据工具返回")
         assert len(requests) == 2
+        assert all(request["stream"] for request in requests)
+        assert "llm_delta" in kinds
+        assert kinds.index("llm_delta") < kinds.index("final")
         assert {t["function"]["name"] for t in requests[0]["tools"]} == {"weather", "astronomy"}
     finally:
         server.shutdown()
@@ -99,6 +121,7 @@ def test_agent_can_answer_without_tools(monkeypatch):
     assert not any(kind == "tool_call" for kind, _ in events)
     assert events[-1][0] == "final"
     assert options['max_tokens']==1200 and options['max_retries']==0
+    assert options['streaming'] is True and options['disable_streaming'] is False
 
 
 def test_provider_timeout_is_reported_clearly():

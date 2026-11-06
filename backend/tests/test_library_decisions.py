@@ -63,8 +63,8 @@ def test_agent_evidence_and_automatic_purchase_delivery(client,monkeypatch):
     assert client.put(B+'/config?activity_id=explore_2d&revision=0',headers=H,json=value['config']).status_code==422
     value['config']['experiment']['k']=2
     run_id=agent_run(client,monkeypatch,2,value)
-    assert client.post(B+'/activities/explore_2d/submit',headers={'X-Session-ID':'another-student-session-123'},json={'payload':{'run_id':run_id}}).status_code==403
-    response=client.post(B+'/activities/explore_2d/submit',headers=H,json={'payload':{'run_id':run_id}})
+    assert client.post(B+'/activities/explore_2d/submit',headers={'X-Session-ID':'another-student-session-123'},json={'payload':{'run_id':run_id,'group_counts':[{'group':0,'count':75},{'group':1,'count':75}]}}).status_code==403
+    response=client.post(B+'/activities/explore_2d/submit',headers=H,json={'payload':{'run_id':run_id,'group_counts':[{'group':0,'count':75},{'group':1,'count':75}]}})
     assert response.status_code==200,response.text
     value=cfg(client,3)
     assert value['config']['experiment']['dataset_id']=='reading_interest_students'
@@ -83,18 +83,22 @@ def test_agent_evidence_and_automatic_purchase_delivery(client,monkeypatch):
     detail=client.get(B+'/runs/'+run_id,headers=H).json()
     decision=next(e['data']['decision'] for e in detail['events'] if e['type']=='final')
     assert sum(r['quantity'] for r in decision['purchases'])==1000
-    assert client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id}}).status_code==422
-    response=client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'reflection':'我根据人数分配，但还需要核查样本的代表性。'}})
+    assert client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'reflection':'我需要自己填写采购类型与数量。'}}).status_code==422
+    assert client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'group_counts':[{'group':0,'count':75},{'group':1,'count':75}]}}).status_code==422
+    for rationale, reflection in [('', '我检查了各组人数和需求，但仍需要核查样本。'), ('不足十字', '我检查了各组人数和需求，但仍需要核查样本。'), ('我参考各组人数和阅读偏好分配采购数量。', '太短'), ('         ', '我检查了各组人数和需求，但仍需要核查样本。')]:
+        rejected=client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'purchases':decision['purchases'],'rationale':rationale,'reflection':reflection}})
+        assert rejected.status_code==422
+    response=client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'purchases':decision['purchases'],'rationale':'我参考各组人数和阅读偏好分配采购数量。','reflection':'我根据人数分配，但还需要核查样本的代表性。'}})
     assert response.status_code==200,response.text
     saved=response.json()['activities'][3]['submission']['payload']
-    assert saved['purchases']==decision['purchases'] and saved['rationale']==decision['rationale']
+    assert saved['purchases']==decision['purchases'] and saved['rationale']=='我参考各组人数和阅读偏好分配采购数量。'
 
 
 def test_old_survey_configuration_migrates_without_overwriting_prompt(client,monkeypatch):
     unlock_second(client)
     value=cfg(client,2)
     run_id=agent_run(client,monkeypatch,2,value)
-    client.post(B+'/activities/explore_2d/submit',headers=H,json={'payload':{'run_id':run_id}})
+    client.post(B+'/activities/explore_2d/submit',headers=H,json={'payload':{'run_id':run_id,'group_counts':[{'group':0,'count':75},{'group':1,'count':75}]}})
     value=cfg(client,3)
     old=value['config']
     old['experiment'].update(dataset_id='reading_interest_survey',k=3)
@@ -112,7 +116,7 @@ def test_purchase_delivery_records_students_unsuitable_table_choice(client,monke
     unlock_second(client)
     value=cfg(client,2)
     run_id=agent_run(client,monkeypatch,2,value)
-    client.post(B+'/activities/explore_2d/submit',headers=H,json={'payload':{'run_id':run_id}})
+    client.post(B+'/activities/explore_2d/submit',headers=H,json={'payload':{'run_id':run_id,'group_counts':[{'group':0,'count':75},{'group':1,'count':75}]}})
     value=cfg(client,3)
     value['config']['experiment'].update(dataset_id='library_sample_1d',features=['borrow_count'])
     value=save(client,3,value)
@@ -120,7 +124,9 @@ def test_purchase_delivery_records_students_unsuitable_table_choice(client,monke
     analyses=client.get(B+'/activities/recommend_purchase/analyses',headers=H).json()
     assert analyses[0]['result']['dataset_id']=='library_sample_1d'
     assert analyses[0]['result']['sample_count']==5
-    response=client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'reflection':'我使用了借阅次数，但需要反思这能否代表阅读兴趣。'}})
+    detail=client.get(B+'/runs/'+run_id,headers=H).json()
+    decision=next(e['data']['decision'] for e in detail['events'] if e['type']=='final')
+    response=client.post(B+'/activities/recommend_purchase/submit',headers=H,json={'payload':{'run_id':run_id,'purchases':decision['purchases'],'rationale':'我参考各组人数和阅读偏好分配采购数量。','reflection':'我使用了借阅次数，但需要反思这能否代表阅读兴趣。'}})
     assert response.status_code==200,response.text
     saved=response.json()['activities'][3]['submission']['payload']
     assert saved['analysis_id']==analyses[0]['id']

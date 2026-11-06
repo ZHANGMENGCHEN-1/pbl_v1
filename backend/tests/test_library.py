@@ -66,7 +66,7 @@ def unlock_first(client):
     p = predict(client, 0, [0,0,0,1,1], [[5.67],[17]], a["analysis_id"])
     a = verify(client, 0, p)
     assert a["converged"] and a["prediction_match"]
-    r = client.post(B + "/activities/group_books/submit", headers=H, json={"payload": {"plan": "根据借阅次数分组，计算中心并检查分组是否稳定", "analysis_id": a["analysis_id"]}})
+    r = client.post(B + "/activities/group_books/submit", headers=H, json={"payload": {"plan": "根据借阅次数分组，计算中心并检查分组是否稳定", "analysis_id": a["analysis_id"], "student_result":{"counts":[g["count"] for g in a["groups"]],"centers":[c[0] for c in a["centers"]]}}})
     assert r.status_code == 200, r.text
     return a
 
@@ -89,7 +89,7 @@ def test_center_selection_rounds(client):
     assert second["labels"]==[0,0,0,1,1]
     third=client.post(url,headers=H,json={"centers":[c[0] for c in second["centers"]],"previous_step_id":second["analysis_id"]}).json()
     assert third["converged"]
-    payload={"plan":"根据借阅次数分组并检查中心变化", "analysis_id":third["analysis_id"]}
+    payload={"plan":"根据借阅次数分组并检查中心变化", "analysis_id":third["analysis_id"],"student_result":{"counts":[3,2],"centers":[5.667,17]}}
     response=client.post(B+"/activities/group_books/submit",headers=H,json={"payload":payload})
     assert response.status_code==200,response.text
     assert response.json()["completed"]==1
@@ -194,7 +194,7 @@ def test_full_learning_journey_and_stale_evidence(client, monkeypatch):
     manual=client.post(B+"/activities/explore_2d/analyses?revision=0",headers=H).json()
     assert client.post(B+"/activities/explore_2d/submit",headers=H,json={"payload":{"analysis_id":manual["analysis_id"]}}).status_code==422
     run_id=agent_run(client,monkeypatch,2,value)
-    r=client.post(B+"/activities/explore_2d/submit",headers=H,json={"payload":{"run_id":run_id,"group_counts":[{"count":999}]}})
+    r=client.post(B+"/activities/explore_2d/submit",headers=H,json={"payload":{"run_id":run_id,"group_counts":[{"group":0,"count":75},{"group":1,"count":75}]}})
     assert r.status_code==200,r.text
     delivery=r.json()["activities"][2]["submission"]["payload"]
     assert sum(g["count"] for g in delivery["group_counts"])==150 and len(delivery["group_counts"])==2

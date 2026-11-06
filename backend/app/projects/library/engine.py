@@ -138,8 +138,9 @@ def completed_run(db, session, activity, id, revision):
 def submit(session, activity, payload):
     def text(name, minimum=6):
         value = payload.get(name)
-        if not isinstance(value, str) or len(value.strip()) < minimum or len(value) > 12000:
-            raise HTTPException(422, f"请完整填写{name}，并说明具体依据")
+        if not isinstance(value, str) or len("".join(value.split())) < minimum or len(value) > 12000:
+            label={"rationale":"分配依据","reflection":"一句话反思"}.get(name,name)
+            raise HTTPException(422, f"请自己填写{label}，至少{minimum}个字（不计空白）")
 
     with store.connection() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -159,6 +160,16 @@ def submit(session, activity, payload):
             item = evidence(payload.get("analysis_id", ""))
             if item["kind"] != "step" or not item["result"]["converged"] or not (item["result"].get("interaction") == "center_selection" or item["result"].get("prediction_match")):
                 raise HTTPException(422, "请继续逐轮预测，直到分组稳定且最终预测与工具结果一致")
+            student=payload.get("student_result")
+            if not isinstance(student,dict):
+                raise HTTPException(422,"请自己填写两组数量和最终中心")
+            counts=student.get("counts");centers=student.get("centers")
+            if not isinstance(counts,list) or len(counts)!=2 or any(type(n) is not int or n<0 for n in counts) or sum(counts)!=item["result"]["sample_count"]:
+                raise HTTPException(422,"请填写两组的整数数量，合计5本书")
+            if not isinstance(centers,list) or len(centers)!=2 or any(type(n) not in (int,float) or not np.isfinite(n) for n in centers):
+                raise HTTPException(422,"请填写两个有限数值的最终中心")
+            payload["student_result"]={"counts":counts,"centers":centers}
+            payload["tool_result"]={"counts":[g["count"] for g in item["result"]["groups"]],"centers":[c[0] for c in item["result"]["centers"]]}
         elif activity == ACTIVITY_IDS[1]:
             if revision == 0:
                 raise HTTPException(422, "请先排列七个步骤并保存 System Prompt")
@@ -173,10 +184,13 @@ def submit(session, activity, payload):
             payload["agent_answer"]=completed_run(db,session,activity,run_id,revision)
             item=run_evidence(db,session,activity,run_id,revision)
             payload["analysis_id"]=item["id"]
-            payload["group_counts"]=[{"group":g["label"],"count":g["count"]} for g in item["result"]["groups"]]
-            payload["total"]=item["result"]["sample_count"]
+            reported=payload.get("group_counts")
+            if not isinstance(reported,list) or len(reported)!=2 or any(not isinstance(g,dict) or type(g.get("group")) is not int or type(g.get("count")) is not int or g["count"]<0 for g in reported) or {g["group"] for g in reported}!={0,1} or sum(g["count"] for g in reported)!=150:
+                raise HTTPException(422,"请自己填写两组数量，合计150条")
+            payload["tool_group_counts"]=[{"group":g["label"],"count":g["count"]} for g in item["result"]["groups"]]
+            payload["total"]=sum(g["count"] for g in reported)
         else:
-            text("reflection")
+            text("reflection", 10)
             run_id=payload.get("run_id", "")
             payload["agent_answer"]=completed_run(db,session,activity,run_id,revision)
             item=run_evidence(db,session,activity,run_id,revision)
@@ -185,11 +199,10 @@ def submit(session, activity, payload):
             if not decision:
                 raise HTTPException(422,"请重新运行Agent，生成包含类型与数量的采购建议")
             validate_purchases(decision.get("purchases"),item["result"])
-            purchases=payload.get("purchases") or decision["purchases"]
+            purchases=payload.get("purchases")
             validate_purchases(purchases,item["result"])
             payload["purchases"]=purchases
-            payload["rationale"]=payload.get("rationale") or decision["rationale"]
-            text("rationale")
+            text("rationale", 10)
             payload["agent_decision"]=decision
             payload["analysis_id"]=item["id"]
         id = str(uuid4())

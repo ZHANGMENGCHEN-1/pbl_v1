@@ -11,7 +11,9 @@ from .schemas import Config, RunInput, Prediction, Payload, PlanInput, CenterSte
 from .tools import build_tools
 from .datasets import preview, load, available, require_dataset
 from .prompt import render
+from . import plans
 from .decisions import FORMAT, parse
+from . import testing
 
 router = APIRouter(prefix="/api/projects/" + PROJECT_ID, tags=["library"])
 
@@ -27,7 +29,13 @@ def metadata():
     # Locked teaching content is fetched only through the guarded learning API.
     p = project()
     p["activities"] = [{"id": a["id"], "title": a["title"]} for a in p["activities"]]
+    p["testing_reset_on_refresh"] = testing.reset_on_refresh()
     return p
+
+
+@router.post("/testing/reset-progress")
+def reset_progress(x_session_id: str = Header(default="")):
+    return testing.reset_progress(session_id(x_session_id))
 
 
 @router.get("/learning")
@@ -98,6 +106,16 @@ def submit(activity: str, body: Payload, x_session_id: str = Header(default=""))
     if len(json.dumps(body.payload)) > 50000:
         raise HTTPException(422, "交付内容过长")
     return engine.submit(session_id(x_session_id), activity, body.payload)
+
+
+@router.post("/activities/{activity}/plan-card")
+def submit_plan_card(activity: str, body: plans.PlanCardInput, x_session_id: str = Header(default="")):
+    return plans.save(session_id(x_session_id),activity,body)
+
+
+@router.get("/plan-history")
+def plan_history(x_session_id: str = Header(default="")):
+    return plans.history(session_id(x_session_id))
 
 
 @router.post("/activities/{activity}/predictions")
@@ -206,8 +224,9 @@ async def run(body: RunInput, x_session_id: str = Header(default="")):
         cfg = state.check_revision(db, session, body.activity_id, body.revision)
         if cfg["model"] not in models():
             raise HTTPException(422, "所选模型已不可用，请重新保存模型配置")
+        plan_card=plans.latest(db,session)
     version = load(cfg["experiment"]["dataset_id"])["version"]
-    run_id = store.create_run(PROJECT_ID, session, body.input, {**cfg, "activity_id": body.activity_id, "revision": body.revision, "dataset_version": version})
+    run_id = store.create_run(PROJECT_ID, session, body.input, {**cfg, "activity_id": body.activity_id, "revision": body.revision, "dataset_version": version, "plan_version":plan_card["version"] if plan_card else None})
     with store.connection() as db:
         db.execute("INSERT INTO library_runs VALUES(?,?,?,?)", (run_id, session, body.activity_id, body.revision))
     tools = build_tools(session, body.activity_id, body.revision, cfg, run_id, dataset_version=version)

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { streamAnswer } from '../../shared/streamAnswer'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -40,8 +41,8 @@ const nodes = computed(() => !config.value ? [] : [
 ])
 const edges = computed(() => (['weather', 'astronomy'] as const).map(id => ({ id: `brain-${id}`, source: 'brain', target: id, type: 'smoothstep', animated: states[id] === 'running', style: { stroke: states[id] === 'running' ? '#7c5ce7' : config.value?.[id].enabled ? '#b5add3' : '#dce0e8', strokeWidth: states[id] === 'running' ? 3 : 1.6, strokeDasharray: config.value?.[id].enabled ? '0' : '5 5' } })))
 const currentTool = computed(() => selected.value === 'brain' ? undefined : project.value?.tools[selected.value])
-const finalAnswer = computed(() => events.value.findLast(e => e.type === 'final')?.data.answer as string | undefined)
-const traceEvents = computed(() => events.value.filter(e => !['done', 'llm_end', 'final'].includes(e.type)))
+const finalAnswer = computed(() => streamAnswer(events.value))
+const traceEvents = computed(() => events.value.filter(e => !['done', 'llm_end', 'final', 'llm_delta'].includes(e.type)))
 const statusText: Record<string, string> = { completed: '已完成', running: '运行中', error: '运行失败', cancelled: '已取消', interrupted: '已中断' }
 const eventNames: Record<string, string> = { run_start: '用户任务', llm_start: 'LLM 执行状态', tool_call: '工具调用', tool_result: '工具返回', tool_error: '工具错误', error: '运行错误' }
 function formatTime(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
