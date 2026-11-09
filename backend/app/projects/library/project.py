@@ -4,24 +4,24 @@ from .prompt import BLOCKS, INITIAL_ORDER, INTRO, ENDING, TEMPLATE
 PROJECT_ID = "library-recommendation"
 ACTIVITY_IDS = ["group_books", "explain_algorithm", "explore_2d", "recommend_purchase"]
 TOOLS = {
-    "inspect_dataset": {"name": "数据查看工具", "description": "读取学生选定的数据表，返回字段含义、数据量、来源与预览；完整分析使用同一张表。", "parameters": "dataset_id · preview_rows"},
-    "run_kmeans_analysis": {"name": "聚类分析工具", "description": "依据已保存的特征、K 值和标准化设置完成聚类，返回各轮计算和图形证据。", "parameters": "使用当前已保存的实验设置"},
+    "inspect_dataset": {"name": "数据查看工具", "description": "帮你查看选中的表，看看有哪些数据。", "parameters": "dataset_id · preview_rows"},
+    "run_kmeans_analysis": {"name": "聚类分析工具", "description": "按你选的两列数据来分组，算出每组有多少条。", "parameters": "使用当前已保存的实验设置"},
 }
 ACTIVITIES = [
-    {"id": ACTIVITY_IDS[0], "title": "活动一：完成数据迭代计算", "phase": "计划与体验", "dataset_id": "library_sample_1d", "tools": ["inspect_dataset"],
-     "body": "如何把数据分为两组？请你先指定两个中心点，把每个数据分给离它最近的中心，再计算各组平均值作为新中心。重复这个过程，直到分组稳定。",
-     "instruction": "1. 在一维数轴上选择两个不同的初始中心，也可随机选择。\n\n2. 调用工具计算一轮，观察距离、分组与新中心。\n\n3. 再使用新中心计算下一轮，直到稳定。"},
-    {"id": ACTIVITY_IDS[1], "title": "活动二：为计算助手编写步骤", "phase": "监控 · 系统指令", "dataset_id": "library_sample_1d", "tools": ["inspect_dataset"],
-     "body": "现在，请你把七个步骤模块按合理顺序排列，补全计算助手的系统指令，告诉它先做什么、后做什么，以及哪些步骤需要重复。",
-     "instruction": "点击计算助手大脑，将七个模块拖动排序，或用上移、下移调整。排序会自动填入半开放的系统指令，保存并提交即可。"},
-    {"id": ACTIVITY_IDS[2], "title": "活动三：用Agent完成二维分组", "phase": "监控 · 工具与证据", "dataset_id": "library_books_2d", "tools": ["inspect_dataset", "run_kmeans_analysis"],
-     "body": "复用活动二排好步骤的计算助手，给它配置数据与聚类工具。让计算助手把150条借阅数据按借阅次数和借阅时长分成2组，报告每组多少条，总数是否为150。",
-     "instruction": "1. 选择正确的数据表\n点击“数据查看工具”，选择本活动需要的数据表，调用工具查看内容。\n\n2. 给智能体描述任务\n在下方输入框中，说清楚要分析什么数据、希望得到什么结果。\n\n3. 运行并检查结果\n点击“运行智能体”，检查它使用的数据、工具和两组数量，再填写并提交自己的结果。"},
-    {"id": ACTIVITY_IDS[3], "title": "活动四：为图书馆作出采购决策", "phase": "调整与反思", "dataset_id": "reading_interest_students", "tools": ["inspect_dataset", "run_kmeans_analysis"],
-     "body": "根据书籍内容偏好和阅读时长偏好进行分组。结合每组中心和人数，决定买什么类型的书、每类多少册，合计1000册。",
-     "instruction": "1. 选择正确的数据表\n点击“数据查看工具”，选择本活动需要的数据表，调用工具查看内容。\n\n2. 给智能体描述任务\n在下方输入框中，说清楚要分析什么数据、希望得到什么结果。\n\n3. 运行并检查结果\n点击“运行智能体”，检查它使用的数据、工具和两组数量，再填写并提交自己的结果。\n\n4. 在整个过程中你有什么收获？填写你的反思，思考有哪里可以改进。"},
-
+    {"id": ACTIVITY_IDS[0], "title": "活动一：给五本书分组", "phase": "计划与体验", "dataset_id": "library_sample_1d", "tools": ["inspect_dataset"],
+     "body": "先试着把五本书分成两组。每算一轮，看看分组和中心有什么变化。",
+     "instruction": "1. 选两个中心点。\n可以在数轴上点击，也可以输入数字。\n\n2. 点“计算一轮”。\n看看每本书分到了哪一组，中心变成了多少。\n\n3. 用新中心继续算。\n分组稳定后，点右下角“提交结果”。"},
+    {"id": ACTIVITY_IDS[1], "title": "活动二：给助手排步骤", "phase": "监控 · 系统指令", "dataset_id": "library_sample_1d", "tools": ["inspect_dataset"],
+     "body": "刚才你已经试过分组。现在给七个步骤排个顺序，教助手先做什么、后做什么。",
+     "instruction": "1. 拖动七张卡片。\n把先做的放上面，后做的放下面。\n\n2. 想一想哪些步骤要重复。\n右边会自动生成助手的做事步骤。\n\n3. 点“提交结果”。\n检查步骤后提交，就能进入下一活动。"},
+    {"id": ACTIVITY_IDS[2], "title": "活动三：把借阅记录分成两组", "phase": "监控 · 工具与证据", "dataset_id": "library_books_2d", "tools": ["inspect_dataset", "run_kmeans_analysis"],
+     "body": "让助手用借阅次数和借阅时长，把150条记录分成两组。你要记录每组有多少条。",
+     "instruction": "1. 选择数据。\n点“数据查看工具”，选表，再点“查看这张表”。点“聚类分析工具”，选要比较的两列。\n\n2. 告诉助手要做什么。\n在下面写清要分哪张表、分成几组、想知道什么，再点“开始运行”。\n\n3. 看结果，自己填写。\n检查两组数量，再点右下角“提交结果”，对照回答填写。"},
+    {"id": ACTIVITY_IDS[3], "title": "活动四：帮图书馆选书", "phase": "调整与反思", "dataset_id": "reading_interest_students", "tools": ["inspect_dataset", "run_kmeans_analysis"],
+     "body": "图书馆准备买1000册书。请根据同学们的阅读兴趣，决定买哪几类书、每类买多少，并说说理由。",
+     "instruction": "1. 选择数据。\n查看阅读兴趣表，选好分组要用的两列。\n\n2. 请助手帮忙分析。\n写清买书任务，再点“开始运行”，看看助手给了什么建议。\n\n3. 写下你的买书方案。\n点右下角“提交结果”，填写书的类型、数量、理由和你的发现。合计买1000册。"},
 ]
+
 
 
 def default_config():

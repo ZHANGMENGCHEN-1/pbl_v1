@@ -1,7 +1,13 @@
 import type { Trace } from './types'
 const key = 'orbit-session-v1'
 let session = localStorage.getItem(key)
-if (!session) { session = crypto.randomUUID(); localStorage.setItem(key, session) }
+if (!session) {
+  // Public-IP HTTP previews lack randomUUID; getRandomValues works there too.
+  session = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+  localStorage.setItem(key, session)
+}
 export const sessionId = session
 export async function request<T>(projectId: string, path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(path.startsWith('/api') ? path : '/api/projects/' + projectId + path, { method, headers: { 'Content-Type': 'application/json', 'X-Session-ID': sessionId }, body: body === undefined ? undefined : JSON.stringify(body) })

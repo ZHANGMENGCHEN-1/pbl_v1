@@ -75,7 +75,7 @@ export function useLibrary() {
   }
   function payload() { return {...form.value,analysis_id:selectedId.value,run_id:finalRun.value} }
   async function saveDraft(silent=false) {
-    try { await api(`/activities/${id.value}/draft`,'PUT',{payload:payload()}); if(!silent) ElMessage.success('交付草稿已保存'); return true }
+    try { await api(`/activities/${id.value}/draft`,'PUT',{payload:payload()}); if(!silent) ElMessage.success('草稿已保存'); return true }
     catch(e) { fail(e); return false }
   }
   async function submitPlan(body:PlanCardInput) {
@@ -83,7 +83,7 @@ export function useLibrary() {
     try {
       learning.value=await api<Learning>(`/activities/${id.value}/plan-card`,'POST',body)
       form.value.plan=learning.value.activities[active.value]?.plan?.text||''; collapsed.value=true
-      ElMessage.success('学习计划已保存，开始实验'); return true
+      ElMessage.success('计划已保存，开始吧'); return true
     } catch(e) { fail(e); return false } finally { saving.value=false }
   }
   async function switchActivity(index:number) {
@@ -98,7 +98,7 @@ export function useLibrary() {
     busy.value=true
     try {
       learning.value=await api<Learning>(`/activities/${id.value}/submit`,'POST',{payload:payload()})
-      ElMessage.success(active.value===3 ? '采购方案与反思已提交' : '交付已提交，下一活动已解锁')
+      ElMessage.success(active.value===3 ? '买书方案和发现已提交' : '结果已提交，可以进入下一活动')
       if(advance){active.value=Math.min(active.value+1,3); await loadActivity()}
       return true
     } catch(e) { fail(e); return false } finally { busy.value=false }

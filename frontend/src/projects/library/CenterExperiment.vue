@@ -35,10 +35,10 @@ onMounted(()=>{if(props.ready)load()})
 
 <template>
   <div class="center-experiment" v-loading="busy">
-    <div class="center-heading"><h2>活动1 · 完成数据迭代计算</h2><el-button :disabled="busy" @click="load">重新读取数据</el-button></div>
-    <p>选择两个中心点 → 计算距离并分组 → 计算新的平均值 → 用新中心继续，直到稳定。</p>
+    <div class="center-heading"><h2>把五本书分成两组</h2></div>
+    <p>每本书下面的数字是借阅次数。先选两个中心，再看看怎么分组。</p>
     <el-table v-if="data" :data="data.preview" border><el-table-column prop="name" label="书名"/><el-table-column prop="borrow_count" label="借阅次数" width="130"/></el-table>
-    <section class="center-interaction-card"><h3 class="interaction-title">动手实验 · 选择中心点并逐轮计算</h3>
+    <section class="center-interaction-card"><h3 class="interaction-title">先选两个中心点</h3>
     <div class="center-controls"><el-radio-group v-model="selecting" :disabled="!!previous"><el-radio-button :value="0">中心点1</el-radio-button><el-radio-button :value="1">中心点2</el-radio-button></el-radio-group><el-input-number v-for="(_,i) in centers" :key="i" v-model="centers[i]!" :aria-label="'中心点'+(i+1)" :min="0" :max="20" :step=".1" :disabled="!!previous||busy"/><el-button :disabled="busy" @click="randomize">随机选择</el-button><el-button :disabled="busy" @click="reset">重新选点</el-button></div>
     <p>{{previous?'数轴显示本轮分组与更新后的中心。':'点击数轴设置所选中心点，也可以直接输入数值。'}}</p>
     <svg class="center-axis" viewBox="0 0 1000 190" role="img" aria-label="借阅次数一维数轴，点击选择中心点" @click="pick">
@@ -47,14 +47,14 @@ onMounted(()=>{if(props.ready)load()})
       <g v-for="(row,i) in data?.preview" :key="row.id"><circle :cx="x(row.borrow_count)" cy="100" r="8" :fill="result?(result.labels[i]===0?'#7c5ce0':'#169d93'):'#697586'"/><text :x="x(row.borrow_count)" :y="i%2?42:66" text-anchor="middle">{{row.name}}</text></g>
       <g v-for="(c,i) in centers" :key="i" :fill="i===0?'#7c5ce0':'#169d93'"><path :d="`M ${x(c)} 83 l -7 -14 h 14 Z`"/><text :x="x(c)" :y="151+i*23" text-anchor="middle">中心{{i+1}}：{{fmt(c)}}</text></g>
     </svg>
-    <div class="center-controls"><el-button type="primary" :loading="busy" :disabled="!data||!ready||centers[0]===centers[1]||result?.converged" @click="calculate">{{previous?'使用新中心，计算下一轮':'调用工具，计算一轮'}}</el-button><el-tag v-if="result">第 {{result.round}} 轮</el-tag></div>
+    <div class="center-controls"><el-button type="primary" :loading="busy" :disabled="!data||!ready||centers[0]===centers[1]||result?.converged" @click="calculate">{{previous?'用新中心，再算一轮':'计算一轮'}}</el-button><el-tag v-if="result">第 {{result.round}} 轮</el-tag></div>
     <template v-if="result&&iteration">
       <h3>本轮距离与分组</h3>
       <el-table :data="result.records.map((r,i)=>({...r,d1:iteration!.distances[i]![0],d2:iteration!.distances[i]![1],group:result!.labels[i]!+1}))" border><el-table-column prop="name" label="书名"/><el-table-column prop="borrow_count" label="借阅次数"/><el-table-column :label="'距中心1（'+fmt(iteration.centers_before[0]![0]!)+ '）'"><template #default="s">{{fmt(s.row.d1)}}</template></el-table-column><el-table-column :label="'距中心2（'+fmt(iteration.centers_before[1]![0]!)+ '）'"><template #default="s">{{fmt(s.row.d2)}}</template></el-table-column><el-table-column prop="group" label="所属组"/></el-table>
       <h3>根据分组更新中心点</h3>
       <p v-for="(c,i) in result.centers" :key="i">中心点{{i+1}}：（{{result.records.filter((_,j)=>result!.labels[j]===i).map(r=>r.borrow_count).join(' + ')||'空组，保留原中心'}}<template v-if="result.groups[i]!.count">） ÷ {{result.groups[i]!.count}}</template> = {{fmt(c[0]!)}}</p>
       <el-alert v-for="w in result.warnings" :key="w" :title="w" type="warning" :closable="false"/>
-      <p>距离相同归入第1组；界面显示近似值，下一轮使用完整精度。</p>
+      <p>计算时保留完整数值，显示的中心可能是近似数。</p>
     </template>
     <el-select v-if="history.length" placeholder="回看计算记录" @change="restore(history.find(a=>a.id===$event)!)"><el-option v-for="a in history" :key="a.id" :value="a.id" :label="'第'+a.result.round+'轮 · '+new Date(a.created).toLocaleTimeString()"/></el-select>
     </section>

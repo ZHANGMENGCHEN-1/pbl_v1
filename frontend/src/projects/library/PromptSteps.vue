@@ -39,8 +39,7 @@ function drop(event:DragEvent,index:number){
 <template>
   <section class="prompt-steps-card">
     <h2>给计算助手排好步骤</h2>
-    <p>按住卡片左侧的拖动手柄，上下拖动，松开后放到紫色提示线的位置。也可以点击右侧箭头调整。</p>
-    <div class="prompt-role"><b>角色与任务</b><p>{{scaffold.intro}}</p></div>
+    <p>拖动卡片，把先做的放上面，后做的放下面。也可以点右边的箭头。</p>
     <ol class="prompt-blocks" aria-label="计算步骤排序">
       <li v-for="(id,index) in order" :key="id" :data-step="id" :class="{moving:dragged===index,'drop-before':insertion===index,'drop-after':index===order.length-1&&insertion===order.length,'drag-disabled':disabled}" :draggable="!disabled" @dragstart="startDrag($event,index)" @dragend="endDrag" @dragover="over($event,index)" @drop="drop($event,index)">
         <span class="drag-handle" title="按住拖动" aria-hidden="true">⠿</span><span class="block-number">{{index+1}}</span><span class="block-label">{{block(id).label}}</span>
@@ -48,8 +47,8 @@ function drop(event:DragEvent,index:number){
       </li>
     </ol>
     <span class="drag-announcement" aria-live="polite">{{announcement}}</span>
-    <p class="iteration-hint">想一想：“进行迭代计算”需要重复哪些步骤？什么时候可以停止？</p>
-    <p class="prompt-rule">角色、任务和回答要求已经写好，你只需要排列步骤，再点击“保存配置”。</p>
+    <p class="iteration-hint">想一想：哪些步骤要重复？什么时候可以停下来？</p>
+    <p class="prompt-rule">排好后，点右下角“提交结果”。</p>
   </section>
 </template>
 
