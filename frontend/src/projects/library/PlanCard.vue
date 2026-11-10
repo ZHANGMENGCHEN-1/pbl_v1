@@ -15,11 +15,11 @@ function submit(){if(valid.value&&!props.busy)emit('submit',{strategy:strategy.v
 </script>
 <template>
   <form class="plan-card" @submit.prevent="submit">
-    <section v-if="baseline" class="plan-previous"><b>上次的计划</b><p>{{baseline.strategy_label}}</p><p>{{baseline.check_label}}</p><span>这次继续这样做吗？可以不改，也可以重新选。</span></section>
-    <fieldset :disabled="busy"><legend>① 我准备先怎么做？</legend><label v-for="o in strategies" :key="o.id" :class="{chosen:strategy===o.id}"><input v-model="strategy" type="radio" name="plan-strategy" :value="o.id"/><span>{{o.text}}</span></label></fieldset>
-    <fieldset :disabled="busy"><legend>② 做完后，我怎么检查？</legend><label v-for="o in checks" :key="o.id" :class="{chosen:check===o.id}"><input v-model="check" type="radio" name="plan-check" :value="o.id"/><span>{{o.text}}</span></label></fieldset>
+    <section v-if="baseline" class="plan-previous"><b>上次的计划</b><p>{{baseline.strategy_label}}</p><p>{{baseline.check_label}}</p><span>这次还按这个计划做吗？可以直接沿用，也可以修改。</span></section>
+    <fieldset :disabled="busy"><legend>① 开始任务前，我准备怎么做？</legend><label v-for="o in strategies" :key="o.id" :class="{chosen:strategy===o.id}"><input v-model="strategy" type="radio" name="plan-strategy" :value="o.id"/><span>{{o.text}}</span></label></fieldset>
+    <fieldset :disabled="busy"><legend>② 得到结果后，我准备怎么检查？</legend><label v-for="o in checks" :key="o.id" :class="{chosen:check===o.id}"><input v-model="check" type="radio" name="plan-check" :value="o.id"/><span>{{o.text}}</span></label></fieldset>
     <fieldset v-if="changed" class="plan-reason" :disabled="busy"><legend>③ 这次为什么修改计划？</legend><label v-for="o in reasons" :key="o.id" :class="{chosen:reason===o.id}"><input v-model="reason" type="radio" name="plan-reason" :value="o.id"/><span>{{o.text}}</span></label></fieldset>
-    <div class="plan-card-actions"><el-button v-if="canClose" :disabled="busy" @click="emit('close')">关闭</el-button><el-button type="primary" native-type="submit" :loading="busy" :disabled="!valid">{{phase==='during'?'保存计划':baseline&&!changed?'继续用这个计划':'选好了，开始吧'}}</el-button></div>
+    <div class="plan-card-actions"><el-button v-if="canClose" :disabled="busy" @click="emit('close')">关闭</el-button><el-button type="primary" native-type="submit" :loading="busy" :disabled="!valid">{{phase==='during'?'保存计划':baseline&&!changed?'沿用计划，开始实验':'确认计划，开始实验'}}</el-button></div>
   </form>
 </template>
 <style scoped>

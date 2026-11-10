@@ -1,5 +1,221 @@
-"""Compatibility entry for the current student-workspace browser journey."""
-from library_student_smoke import main
+from browser_delivery_helpers import submit_first_result
+"""Full browser journey against library_fixture_server.py + Vite port 5174.
+Real LangChain/tools/SQLite, explicit local model fixture, no external API calls.
+"""
+from pathlib import Path
+import json
+import re
+from playwright.sync_api import sync_playwright, expect
+
+
+def main():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        page = browser.new_page(viewport={"width":1600,"height":1100})
+        page.set_default_timeout(10000)
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto("http://127.0.0.1:5174/projects/library-recommendation")
+        expect(page.locator(".library-plan-dialog")).to_be_visible()
+        assert page.get_by_role("button",name="返回工作台",exact=True).count()==0
+        assert page.locator(".library-plan-dialog .el-dialog__headerbtn").count()==0
+        page.keyboard.press("Escape")
+        page.mouse.click(20,180)
+        expect(page.locator(".library-plan-dialog")).to_be_visible()
+        assert page.get_by_role("button",name="数据与预测",exact=True).count()==0
+        expect(page.locator(".center-experiment")).to_have_count(0)
+        assert page.locator(".library-activities button:disabled").count() == 3
+
+        def submit_plan():
+            card=page.locator('.plan-card')
+            expect(card).to_be_visible()
+            if card.locator('input:checked').count()==0:
+                card.locator('input[value=read_first]').check()
+                card.locator('input[value=evidence]').check()
+            card.locator('button[type=submit]').click()
+            expect(page.locator('.library-plan-dialog')).not_to_be_visible()
+            third=page.locator('.library-activities button.current').evaluate('(el)=>Array.from(el.parentElement.children).indexOf(el)===2')
+            if third:
+                expect(page.locator('.library-layout')).not_to_have_class(re.compile('collapsed'))
+                expect(page.locator('.library-lesson .try-it')).to_contain_text('1. 选择正确的数据表')
+                expect(page.locator('.library-lesson .try-it')).to_contain_text('2. 给智能体描述任务')
+                expect(page.locator('.library-lesson .try-it')).to_contain_text('3. 运行并检查结果')
+            elif page.locator('.library-activities button.current').evaluate('(el)=>Array.from(el.parentElement.children).indexOf(el)===3'):
+                expect(page.locator('.library-layout')).not_to_have_class(re.compile('collapsed'))
+            else:
+                expect(page.locator('.library-layout')).to_have_class(re.compile('collapsed'))
+
+        Path("test-results").mkdir(exist_ok=True)
+        page.screenshot(path="test-results/library-planning-dialog.png",full_page=True)
+        submit_plan()
+        page.reload()
+        expect(page.locator('.plan-card input[value=read_first]')).to_be_checked()
+        submit_plan()
+        expect(page.get_by_role("button",name="查看我的计划",exact=True)).to_be_visible()
+        expect(page.locator(".library-plan-dialog")).not_to_be_visible()
+        page.get_by_role("button",name="查看学习指南",exact=True).click()
+        expect(page.locator(".library-learning-scroll")).to_be_visible()
+        page.get_by_role("button",name="收起学习指南",exact=True).click()
+        expect(page.locator(".library-learning-scroll")).not_to_be_visible()
+
+        page.get_by_role("button",name="调用工具，计算一轮",exact=True).click()
+        expect(page.locator(".center-experiment")).to_contain_text("14.333")
+        page.get_by_role("button",name="使用新中心，计算下一轮",exact=True).click()
+        expect(page.locator(".center-experiment")).to_contain_text("5.667")
+        page.get_by_role("button",name="使用新中心，计算下一轮",exact=True).click()
+        expect(page.locator('.library-stable-dialog')).to_contain_text('分组与中心已稳定')
+        submit_first_result(page)
+        submit_plan()
+        expect(page.locator('.prompt-blocks li')).to_have_count(7)
+        expect(page.locator('.library-settings h2')).to_have_text('计算助手大脑')
+        expect(page.locator('.agent-node.run_kmeans_step')).to_have_count(0)
+        expect(page.locator('.library-settings textarea')).to_have_value(re.compile('请排列第1个步骤模块'))
+        while page.locator('.prompt-blocks li').evaluate_all('(rows)=>rows.findIndex(r=>r.dataset.step==="iterate")')>0:
+            page.locator('.prompt-blocks li[data-step="iterate"] .block-actions button').first.click()
+        page.get_by_role('button',name='保存配置',exact=True).click()
+        page.get_by_role('button',name="提交结果",exact=True).click()
+        page.get_by_role('button',name='提交并解锁下一活动',exact=True).click()
+        expect(page.locator('.el-message--error')).to_contain_text('步骤还需要调整')
+        page.get_by_role('button',name='返回实验',exact=True).click()
+        desired=['data','count','centers','distance','assign','update','iterate']
+        for position,step in enumerate(desired):
+            while page.locator('.prompt-blocks li').evaluate_all('(rows,id)=>rows.findIndex(r=>r.dataset.step===id)',step)>position:
+                page.locator(f'.prompt-blocks li[data-step="{step}"] .block-actions button').first.click()
+        expect(page.locator('.library-settings textarea')).to_have_value(re.compile('1. 获取原始数据'))
+        page.get_by_role('button',name='保存配置',exact=True).click()
+        expect(page.locator('.config-version')).to_contain_text('配置 v2')
+        page.screenshot(path='test-results/library-prompt-sorting.png',full_page=True)
+        page.reload()
+        submit_plan()
+        assert page.locator('.prompt-blocks li').evaluate_all('(rows)=>rows.map(r=>r.dataset.step)')!=desired
+        expect(page.locator('.library-settings textarea')).to_have_value(re.compile('请排列第1个步骤模块'))
+        for position,step in enumerate(desired):
+            while page.locator('.prompt-blocks li').evaluate_all('(rows,id)=>rows.findIndex(r=>r.dataset.step===id)',step)>position:
+                page.locator(f'.prompt-blocks li[data-step="{step}"] .block-actions button').first.click()
+        if page.get_by_role('button',name='保存配置',exact=True).is_enabled():
+            page.get_by_role('button',name='保存配置',exact=True).click()
+        expect(page.locator('.library-execution')).to_have_count(0)
+        page.get_by_role('button',name="提交结果",exact=True).click()
+        expect(page.locator('.library-delivery textarea')).to_have_count(0)
+        page.get_by_role('button',name='提交并解锁下一活动',exact=True).click()
+        page.locator('.library-receipt-dialog').get_by_role('button',name='进入活动3',exact=True).click()
+        submit_plan()
+        page.get_by_role("button",name="Agent 画布",exact=True).click()
+        page.locator('.agent-node.inspect_dataset').click()
+        expect(page.locator('.library-settings')).to_contain_text('150 条记录')
+        expect(page.locator('.lab-tabs button').filter(has_text='分析结果')).to_have_count(0)
+        expect(page.locator('.analysis-viewer')).to_have_count(0)
+        def choose_table(label):
+            select=page.get_by_role('combobox',name='选择数据表',exact=True)
+            page.locator('.library-settings .el-select').filter(has=select).click()
+            listbox=select.get_attribute('aria-controls')
+            page.locator(f'[id="{listbox}"]').get_by_role('option',name=label,exact=True).click()
+        names=json.loads(Path('backend/datasets/library/manifest.json').read_text(encoding='utf-8'))
+        choose_table(names['library_sample_1d']['name']+' · 1维')
+        page.get_by_role('button',name='调用数据查看工具',exact=True).click()
+        expect(page.locator('.library-tool-data-dialog')).to_contain_text('共 5 条记录')
+        expect(page.locator('.library-tool-data-dialog .el-table__body tr')).to_have_count(5)
+        page.locator('.library-tool-data-dialog').get_by_role('button',name='关闭',exact=True).click()
+        choose_table(names['library_books_2d']['name']+' · 2维')
+        page.get_by_role('button',name='调用数据查看工具',exact=True).click()
+        expect(page.locator('.library-tool-data-dialog')).to_contain_text('共 150 条记录')
+        expect(page.locator('.library-tool-data-dialog .el-table__body tr')).to_have_count(30)
+        expect(page.locator('.lab-tabs button.active')).to_have_text('Agent 画布')
+        expect(page.locator('.analysis-viewer')).to_have_count(0)
+        expect(page.locator('.library-tool-data-dialog')).to_contain_text('记录001')
+        page.screenshot(path='test-results/library-selected-table.png',full_page=True)
+        page.locator('.library-tool-data-dialog').get_by_role('button',name='关闭',exact=True).click()
+        page.reload()
+        submit_plan()
+        expect(page.locator('.library-settings')).to_contain_text('150 条记录')
+        page.locator(".agent-node.run_kmeans_analysis").click()
+        expect(page.get_by_role('button',name='运行聚类实验',exact=True)).to_have_count(0)
+        expect(page.locator('.library-settings .el-input-number input').first).to_have_value('2')
+        expect(page.locator('.library-settings .el-input-number input').first).to_be_disabled()
+        expect(page.locator('.test-input textarea')).to_have_value('')
+        page.get_by_role('button',name='试试示例',exact=True).click()
+        page.get_by_role('button',name='运行智能体',exact=True).click()
+        expect(page.locator('.run-badge.completed')).to_be_visible(timeout=20000)
+        expect(page.locator('.library-execution .final-answer')).to_be_visible()
+        expect(page.locator('.library-delivery-dialog')).not_to_be_visible()
+        page.get_by_role('button',name='提交结果',exact=True).click()
+        expect(page.locator('.library-delivery-dialog')).to_be_visible(timeout=20000)
+        expect(page.locator('.analysis-viewer')).to_have_count(0)
+        expect(page.locator('.library-delivery-dialog .final-answer')).to_have_count(0)
+        inputs=page.locator('.library-delivery-dialog .student-result-row .el-input-number input')
+        expect(inputs).to_have_count(2)
+        assert inputs.nth(0).input_value()=='' and inputs.nth(1).input_value()==''
+        inputs.nth(0).fill('75');inputs.nth(1).fill('75')
+        expect(page.locator('.library-delivery')).to_contain_text('合计 150 / 150 条')
+        page.get_by_role('button',name='提交并解锁下一活动',exact=True).click()
+        receipt=page.locator('.library-receipt-dialog')
+        expect(receipt).to_contain_text('75')
+        expect(receipt.locator('.analysis-viewer circle')).to_have_count(150)
+        page.screenshot(path='test-results/library-group-counts.png',full_page=True)
+        receipt.get_by_role('button',name='进入活动4',exact=True).click()
+        expect(page.locator('.plan-card input[value=read_first]')).to_be_checked()
+        submit_plan()
+        expect(page.locator('.library-settings')).to_contain_text('100 条记录')
+        page.locator('.agent-node.brain').click()
+        expect(page.locator('.library-settings textarea').first).to_have_value(re.compile('1. 获取原始数据'))
+        expect(page.locator('.library-settings textarea').nth(1)).to_have_value(re.compile('实际选择'))
+        expect(page.locator('.test-input textarea')).to_have_value('')
+        page.get_by_role('button',name='试试示例',exact=True).click()
+        page.get_by_role('button',name='运行智能体',exact=True).click()
+        expect(page.locator('.run-badge.completed')).to_be_visible(timeout=20000)
+        expect(page.locator('.library-delivery-dialog')).not_to_be_visible()
+        page.get_by_role('button',name='提交结果',exact=True).click()
+        expect(page.locator('.library-delivery-dialog')).to_be_visible(timeout=20000)
+        expect(page.locator('.purchase-row')).to_have_count(2)
+        page.screenshot(path='test-results/student-purchase-before-input.png',full_page=True)
+        for i in range(2):
+            row=page.locator('.purchase-row').nth(i)
+            assert row.locator('.el-input-number input').input_value()==''
+            assert row.locator(':scope > .el-input input').input_value()==''
+            row.locator(':scope > .el-input input').fill('我推荐的图书类型'+str(i+1))
+            row.locator('.el-input-number input').fill('500')
+        expect(page.locator('.library-delivery textarea').first).to_have_value('')
+        expect(page.get_by_role('button',name='提交成果与反思',exact=True)).to_be_disabled()
+        page.locator('.library-delivery textarea').first.fill('我参考各组人数和阅读偏好分配采购数量。')
+        page.locator('.library-delivery textarea').nth(1).fill('我检查了组中心与人数，保留当前建议，仍需核查样本代表性。')
+        page.screenshot(path='test-results/library-reflection-dialog.png',full_page=True)
+        page.get_by_role('button',name='提交成果与反思',exact=True).click()
+        expect(page.locator('.library-receipt-dialog')).to_contain_text('我推荐的图书类型1')
+        expect(page.locator('.library-receipt-dialog .analysis-viewer circle')).to_have_count(100)
+        page.locator('.library-receipt-dialog').get_by_role('button',name='返回工作台',exact=True).click()
+        expect(page.locator(".library-progress")).to_contain_text("4 / 4")
+        expect(page.locator('.library-floating-actions button')).to_have_count(3)
+        page.get_by_role('button',name='查看我的提交',exact=True).click()
+        drawer=page.locator('.library-records-drawer')
+        expect(drawer.locator('.library-record-card')).to_have_count(4)
+        expect(drawer.locator('.analysis-viewer')).to_have_count(0)
+        expect(drawer.locator('.student-reflection')).to_contain_text('我检查了组中心与人数，保留当前建议，仍需核查样本代表性。')
+        expect(drawer).to_contain_text('我推荐的图书类型1')
+        page.screenshot(path='test-results/library-all-submissions.png',full_page=True)
+        page.keyboard.press('Escape')
+        expect(drawer).not_to_be_visible()
+        page.get_by_role('button',name='查看我的计划',exact=True).click()
+        expect(drawer.locator('.library-record-card').first).to_be_visible()
+        assert drawer.locator('.library-record-card').count()>=4
+        expect(drawer).to_contain_text('我的检查方法')
+        page.screenshot(path='test-results/library-all-plans.png',full_page=True)
+        page.keyboard.press('Escape')
+        expect(drawer).not_to_be_visible()
+        page.reload()
+        expect(page.locator(".library-progress")).to_contain_text("4 / 4")
+        submit_plan()
+        Path("test-results").mkdir(exist_ok=True)
+        page.screenshot(path="test-results/library-workspace.png",full_page=True)
+        page.get_by_role("link",name="天文项目",exact=True).click()
+        expect(page).to_have_url(re.compile("/projects/astronomy-lab$"))
+        expect(page.locator(".agent-node")).to_have_count(3)
+        expect(page.locator(".learning-intro h2")).to_have_text("月球与行星观测")
+        page.get_by_role("link",name="图书馆项目",exact=True).click()
+        expect(page.locator(".library-progress")).to_contain_text("4 / 4")
+        assert not errors, errors
+        print("Passed forced plan submission, no direct data tab, seven-block Prompt sorting, saved template, invalid order guards, selected Excel tables and 150-row two-group Agent delivery, 100-row real survey, student-filled quantities/purchases, displayed receipts and cumulative plans, four activities, delivery/reflection, reload, real fixture tool calling and astronomy preservation; no page errors.")
+        browser.close()
+
 
 if __name__ == "__main__":
     main()
