@@ -1,5 +1,9 @@
 # Orbit · Agent-Based PBL Learning Workspace
 
+新增教学 Agent 前端演示：`/projects/teaching-agent`，首页提供第三个项目入口。源码独立放在 `frontend/src/projects/teaching-agent/`，包含卡通机器人、对话输入、快捷话题、示例回复逐步显示与暂停、重新开始及当前浏览器的对话恢复。页面明确标注预设示例，尚未接入真实大模型；后续可将 `useTeachingChat.ts` 的示例回复源替换为后端流式接口。只启动前端即可体验此页面，不影响天文和图书馆项目。浏览器验证：`scripts/teaching_agent_browser_smoke.py`（前端端口5174）。
+
+小知主形象使用 Three.js 程序化3D模型，支持拖动旋转、复位、鼠标跟随、浮动眨眼和对话状态动作。`robotModel.ts`定义模型，`RobotScene.vue`负责灯光、动画、交互及资源释放。Three.js按需加载，聊天小头像继续使用SVG；无WebGL2或上下文丢失时回退到`TeachingRobotSvg.vue`。尊重减少动态效果设置，页面隐藏/形象离屏时暂停渲染，限制像素比及帧率。无需下载外部模型。首次拉取新版后先在`frontend`执行`npm ci`。3D验证：`scripts/teaching_robot_3d_smoke.py`，包含实际WebGL旋转、状态变化、上下文丢失与无WebGL回退。
+
 Vue 3 + TypeScript + Element Plus + Vue Flow 学习工作台，FastAPI + LangChain Tool-Calling Agent，SQLite 持久化，POST SSE 事件流。默认进入项目首页，不包含登录或管理后台。
 
 ## 两个独立项目

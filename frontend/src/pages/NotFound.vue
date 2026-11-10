@@ -1,1 +1,1 @@
-<template><main class="empty-screen"><h2>项目页面不存在</h2><RouterLink to="/projects/astronomy-lab">进入天文项目</RouterLink> · <RouterLink to="/projects/library-recommendation">进入图书馆项目</RouterLink></main></template>
+<template><main class="empty-screen"><h2>项目页面不存在</h2><RouterLink to="/projects/astronomy-lab">进入天文项目</RouterLink> · <RouterLink to="/projects/library-recommendation">进入图书馆项目</RouterLink> · <RouterLink to="/projects/teaching-agent">进入教学 Agent</RouterLink></main></template>
