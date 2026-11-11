@@ -3,9 +3,7 @@ import { ArrowRight, Position } from '@element-plus/icons-vue'
 import TeachingRobot from '../../projects/teaching-agent/TeachingRobot.vue'
 
 const projects = [
-  { id: 'astronomy-lab', number: '01', title: '天文观测', theme: 'astronomy', tag: '天文与科学', description: '构建观测助手，结合天气与星历，探索月球和行星的观测条件。', topics: ['System Prompt', '工具调用', '观测规划'] },
-  { id: 'library-recommendation', number: '02', title: '图书馆采购推荐', theme: 'library', tag: '数据与决策', description: '从图书分组到阅读兴趣分析，用 K-Means 和智能体制定采购建议。', topics: ['聚类分析', '工具配置', '证据与反思'] },
-  { id: 'teaching-agent', number: '03', title: '教学 Agent', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },
+  { id: 'teaching-agent', number: '01', title: '教学 Agent', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },
 ]
 </script>
 
@@ -14,7 +12,7 @@ const projects = [
     <header class="home-header">
       <div class="home-header-inner">
         <RouterLink to="/" class="home-brand" aria-label="Orbit 项目首页"><span class="brand-mark"><el-icon><Position/></el-icon></span><span>orbit</span><span class="home-brand-label">PBL 学习空间</span></RouterLink>
-        <nav class="home-nav" aria-label="顶部菜单"><RouterLink to="/" class="home-current" aria-current="page">项目首页</RouterLink><RouterLink to="/projects/astronomy-lab">天文观测</RouterLink><RouterLink to="/projects/library-recommendation">图书馆采购推荐</RouterLink><RouterLink to="/projects/teaching-agent">教学 Agent</RouterLink></nav>
+        <nav class="home-nav" aria-label="顶部菜单"><RouterLink to="/" class="home-current" aria-current="page">项目首页</RouterLink><RouterLink to="/projects/teaching-agent">教学 Agent</RouterLink></nav>
       </div>
     </header>
     <main class="home-content">
@@ -67,7 +65,7 @@ const projects = [
 .home-eyebrow{font-size:14px;color:#80679f;letter-spacing:1px}
 .home-intro h1{font-size:34px;font-weight:700;line-height:1.5;color:#30394e;margin:12px 0}
 .home-intro p{font-size:16px;line-height:1.8;color:#657085}
-.home-project-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.home-project-grid{display:grid;grid-template-columns:minmax(0,720px);justify-content:center;gap:24px}
 .home-project-card{display:block;overflow:hidden;border:1px solid #e3e5ef;border-radius:16px;background:#fff;color:inherit;text-decoration:none;box-shadow:0 5px 20px #39314b04;transition:transform .2s,box-shadow .2s,border-color .2s}
 .home-project-card:hover{transform:translateY(-4px);box-shadow:0 12px 32px #53406b10;border-color:#c7b6e3}
 .home-project-card:focus-visible{outline:3px solid #9f86ce;outline-offset:4px}
@@ -90,7 +88,7 @@ const projects = [
 .library .home-card-action{color:#4e8978}
 .library .home-card-action>.el-icon{background:#edf6f1}
 .teaching .home-card-art{background:#f2effa;border-bottom-color:#e8e0f3}.home-teaching-art{width:215px;height:235px;margin:0 auto;padding-top:14px;overflow:hidden}.teaching .home-category{color:#947bb2}.home-nav{gap:22px}
-@media(max-width:1050px) and (min-width:581px){.home-project-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.home-nav{gap:15px}.home-brand-label{display:none}}
+@media(max-width:1050px) and (min-width:581px){.home-nav{gap:15px}.home-brand-label{display:none}}
 @media(max-width:800px){.home-header-inner{padding:0 20px}.home-brand-label{display:none}.home-nav{gap:18px}.home-nav a{font-size:14px}.home-content{padding:118px 22px 50px}.home-intro h1{font-size:28px}.home-project-grid{gap:20px}.home-card-content{padding:22px}.home-card-art{height:215px}.home-project-number{left:20px}.home-category{right:16px}.home-card-content h2{font-size:20px}}
 @media(max-width:580px){.home-header{height:68px}.home-brand{font-size:24px}.home-brand .brand-mark{width:27px;height:27px}.home-nav{gap:12px}.home-nav a{font-size:12px}.home-nav a:nth-child(2),.home-nav a:nth-child(3){display:none}.home-content{padding-top:105px}.home-project-grid{grid-template-columns:1fr}.home-intro{margin-bottom:28px}.home-card-art{height:230px}}
 @media(prefers-reduced-motion:reduce){.home-project-card,.home-card-action>.el-icon{transition:none}.home-project-card:hover{transform:none}}
