@@ -2,9 +2,10 @@
 import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import TeachingRobotSvg from './TeachingRobotSvg.vue'
 
-withDefaults(defineProps<{compact?:boolean;mood?:'ready'|'thinking'|'talking';interactive?:boolean}>(),{compact:false,mood:'ready',interactive:true})
+withDefaults(defineProps<{compact?:boolean;mood?:'ready'|'thinking'|'talking';interactive?:boolean;showControls?:boolean}>(),{compact:false,mood:'ready',interactive:true,showControls:true})
 const root=ref<HTMLElement>(),ready=ref(false),failed=ref(false),visible=ref(false)
 const scene=ref<{reset:()=>void}>()
+defineExpose({reset:()=>scene.value?.reset()})
 const RobotScene=defineAsyncComponent(()=>import('./RobotScene.vue'))
 let observer:IntersectionObserver|undefined
 onMounted(()=>{
@@ -21,7 +22,7 @@ onBeforeUnmount(()=>observer?.disconnect())
       <div class="robot-halo" aria-hidden="true"/>
       <div v-if="!ready||failed" class="robot-fallback"><TeachingRobotSvg :mood="mood"/></div>
       <RobotScene v-if="visible&&!failed" ref="scene" :mood="mood" :interactive="interactive" @ready="ready=true" @unsupported="failed=true;ready=false"/>
-      <div v-if="interactive&&ready&&!failed" class="robot-3d-controls"><span>拖动转一转</span><button type="button" aria-label="让小知转回正面" @click="scene?.reset()">复位 ↺</button></div>
+      <div v-if="showControls&&interactive&&ready&&!failed" class="robot-3d-controls"><span>拖动转一转</span><button type="button" aria-label="让小知转回正面" @click="scene?.reset()">复位 ↺</button></div>
     </template>
   </div>
 </template>

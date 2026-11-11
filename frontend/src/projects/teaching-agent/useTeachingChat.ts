@@ -1,65 +1,55 @@
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed,onBeforeUnmount,ref,watch,type Ref } from 'vue'
+import { appendMessage,type TeachingSession } from './learningState'
+import {readChatStream} from './chatStream'
 
-export type Topic='plan'|'stuck'|'reflect'
-export interface Message {id:number;role:'assistant'|'student';text:string;paused?:boolean}
-const key='orbit-teaching-agent-demo-v1'
-const welcome='你好呀，我是小知！你可以告诉我正在做什么，或者说说哪里卡住了。我们一起想一想，下一步可以怎么做。'
-const replies:Record<Topic,string[]>={
-  plan:['我们先把任务拆小一点。\n\n你这次想完成什么？准备先做哪一步？可以先用一句话告诉我。','有了第一步，再想一想：你需要哪些材料？做完以后，你准备用什么办法检查？'],
-  stuck:['遇到困难时，我们先找一找卡在哪里。\n\n你正在做哪一步？已经试过什么办法？先告诉我一件就好。','我们试着只改一个地方，再看看结果有没有变化。\n\n你想先换一种做法，还是先回头检查已有的数据？'],
-  reflect:['我们一起回顾一下。\n\n这次你发现了什么？有没有哪一步和你原来想的不一样？','把你的收获接在这句话后面试试：\n\n“我发现……，下次我准备……”\n\n不用写得很长，说清自己的想法就好。'],
-}
-
-/** Frontend-only demo transport. Replace the reply source with backend SSE later. */
-export function useTeachingChat(){
-  const topic=ref<Topic>('plan'), messages=ref<Message[]>([{id:1,role:'assistant',text:welcome}])
-  const draft=ref(''), busy=ref(false), thinking=ref(false), saveError=ref('')
-  let timer:ReturnType<typeof setTimeout>|undefined, sequence=1
-  function persist(){
-    try{localStorage.setItem(key,JSON.stringify({version:1,topic:topic.value,messages:messages.value.slice(-80)}));saveError.value=''}
-    catch{saveError.value='这次对话暂时无法保存，刷新后可能丢失。'}
-  }
-  try{
-    const saved=JSON.parse(localStorage.getItem(key)||'null')
-    if(saved?.version===1&&Array.isArray(saved.messages)){
-      const valid=saved.messages.filter((m:Message)=>m&&['assistant','student'].includes(m.role)&&Number.isSafeInteger(m.id)&&typeof m.text==='string'&&m.text.length<=10000).slice(-80)
-      if(valid.length){messages.value=valid;sequence=Math.max(...valid.map((m:Message)=>m.id),1)}
-      if(['plan','stuck','reflect'].includes(saved.topic))topic.value=saved.topic
-    }
-  }catch{ /* An invalid demo record does not prevent a fresh conversation. */ }
+/** One real model request per question; state transitions remain in platform code. */
+export function useTeachingChat(state:Ref<TeachingSession>,persist:()=>void,phase:()=> 'dialogue'|'task'=()=> 'task'){
+  const messages=computed(()=>state.value.messages)
+  const draft=computed({get:()=>state.value.activities[state.value.activeActivityId].draft.question,set:(value:string)=>{state.value.activities[state.value.activeActivityId].draft.question=value}})
+  const busy=ref(false),thinking=ref(false),error=ref('')
+  let active:{controller:AbortController;messageId:number}|null=null,lastQuestion=''
   const mood=computed(()=>thinking.value?'thinking':busy.value?'talking':'ready')
   const canSend=computed(()=>!!draft.value.trim()&&!busy.value&&draft.value.length<=2000)
-  function send(text=draft.value){
-    const input=text.trim()
+  async function send(text=draft.value){
+    const input=text.trim(),id=state.value.activeActivityId,session=state.value.sessionId,current=state.value.activities[id]
     if(!input||input.length>2000||busy.value)return
-    messages.value.push({id:++sequence,role:'student',text:input});draft.value='';busy.value=true;thinking.value=true
-    const steps=replies[topic.value]
-    const reply=steps[(messages.value.filter(m=>m.role==='student').length-1)%steps.length]!
-    persist()
-    timer=setTimeout(()=>{
-      thinking.value=false
-      const id=++sequence
-      messages.value.push({id,role:'assistant',text:''})
-      let position=0
-      const tick=()=>{
-        const target=messages.value.find(m=>m.id===id)
-        if(!target)return
-        position=Math.min(position+4,reply.length);target.text=reply.slice(0,position)
-        if(position<reply.length)timer=setTimeout(tick,28)
-        else{busy.value=false;timer=undefined;persist()}
-      }
-      tick()
-    },450)
+    const context={phase:phase(),step_id:id==='group_books'?current.operation.result?.id??null:null,
+      analysis_id:id==='explore_2d'?current.operation.result?.id??null:null,
+      dataset_id:current.draft.datasetId,features:current.draft.features.filter(Boolean),
+      initial_centers:current.draft.centers,step_order:id==='explain_algorithm'?current.draft.stepOrder:[]}
+    appendMessage(state.value,{role:'student',activityId:id,kind:'chat',text:input})
+    appendMessage(state.value,{role:'assistant',activityId:id,kind:'chat',text:'',status:'streaming'})
+    const messageId=state.value.messages.at(-1)!.id,request={controller:new AbortController(),messageId}
+    active=request;lastQuestion=input;draft.value='';busy.value=true;thinking.value=true;error.value='';persist()
+    const target=()=>state.value.messages.find(m=>m.id===messageId)
+    let completed=false
+    try{
+      let response:Response
+      try{response=await fetch('/api/projects/teaching-agent/chat',{method:'POST',headers:{'Content-Type':'application/json','X-Session-ID':session},body:JSON.stringify({activity_id:id,question:input,context}),signal:request.controller.signal})}
+      catch(e){if(request.controller.signal.aborted)throw e;throw new Error('连接不上小知，请稍后重试，或请老师检查网络。')}
+      if(!response.ok){const data=await response.json().catch(()=>null);throw new Error(typeof data?.detail==='string'?data.detail:'小知暂时无法回复，请检查模型连接后重试。')}
+      await readChatStream(response,event=>{
+        if(active!==request)return
+        const message=target();if(!message)return
+        if(event.type==='delta'&&event.data.text){message.text+=event.data.text;thinking.value=false}
+        if(event.type==='error')throw new Error(event.data.message||'这次回复没有完成，请稍后重试。')
+        if(event.type==='done'){completed=true;message.status='completed'}
+      })
+      if(!completed&&!request.controller.signal.aborted)throw new Error('小知的回复没有完成，请重新提问。')
+    }catch(e){
+      if(active===request&&!request.controller.signal.aborted){const text=e instanceof Error?e.message:'小知暂时无法回复，请稍后重试。';error.value=text;const message=target();if(message){message.status='error';message.error=text}}
+    }finally{if(active===request){active=null;busy.value=false;thinking.value=false;persist()}}
   }
   function stop(){
-    if(timer)clearTimeout(timer)
-    timer=undefined
-    const last=messages.value.at(-1)
-    if(busy.value&&last?.role==='assistant')last.paused=true
+    if(!active)return
+    const request=active;active=null;request.controller.abort()
+    const message=state.value.messages.find(m=>m.id===request.messageId)
+    if(message){message.paused=true;message.status='paused'}
     busy.value=false;thinking.value=false;persist()
   }
-  function reset(){stop();sequence=1;messages.value=[{id:1,role:'assistant',text:welcome}];draft.value='';persist()}
-  function selectTopic(value:Topic){topic.value=value;persist()}
-  onBeforeUnmount(()=>{if(busy.value)stop()})
-  return {topic,messages,draft,busy,thinking,mood,canSend,saveError,send,stop,reset,selectTopic}
+  function retry(){if(lastQuestion&&!busy.value)void send(lastQuestion)}
+  // Cancel outdated answers when a new activity/file/calculation replaces their context.
+  watch(()=>{const s=state.value,a=s.activities[s.activeActivityId];return [s.sessionId,s.activeActivityId,a.operation.result?.id,a.draft.datasetId,a.draft.features.join('|'),a.draft.stepOrder.join('|')].join(':')},()=>{stop();error.value=''},{flush:'sync'})
+  onBeforeUnmount(stop)
+  return {messages,draft,busy,thinking,mood,canSend,send,stop,error,retry}
 }

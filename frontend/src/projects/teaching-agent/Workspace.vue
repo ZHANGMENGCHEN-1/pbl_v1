@@ -1,96 +1,104 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
-import { ArrowLeft, ChatDotRound, Flag, Opportunity, Position, Promotion, RefreshLeft, Notebook } from '@element-plus/icons-vue'
+import { computed,nextTick,onBeforeUnmount,onMounted,ref,watch } from 'vue'
+import { ArrowLeft,MoreFilled,Promotion } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import TeachingRobot from './TeachingRobot.vue'
-import { useTeachingChat, type Topic } from './useTeachingChat'
+import ExcelExperiment from './ExcelExperiment.vue'
+import type {Analysis,ExplorationSubmission} from './exploration'
+import AlgorithmSteps from './AlgorithmSteps.vue'
+import CenterExperiment from './CenterExperiment.vue'
+import type {Calculation,CalculationSubmission} from './calculation'
+import {recordCalculation,recordStepOrder,recordExploration} from './learningState'
+import { useTeachingLearning } from './useTeachingLearning'
+import { useTeachingChat } from './useTeachingChat'
+import { canEnter } from './learningState'
+import {algorithmSteps} from './sorting'
+import type { ActivityId } from './activities'
 
-const {topic,messages,draft,busy,thinking,mood,canSend,saveError,send,stop,reset,selectTopic}=useTeachingChat()
-const transcript=ref<HTMLElement>(),input=ref<HTMLTextAreaElement>(),follow=ref(true)
-const topics=[
-  {id:'plan' as Topic,label:'我想做个计划',hint:'把任务变成几个小步骤',icon:Flag},
-  {id:'stuck' as Topic,label:'我有点卡住了',hint:'一起找找可以试的办法',icon:Opportunity},
-  {id:'reflect' as Topic,label:'我想回顾一下',hint:'说说发现和下一次的想法',icon:Notebook},
-]
-const starters:Record<Topic,string[]>={
-  plan:['我不知道从哪里开始','帮我把任务分成几步','我想先确定学习目标'],
-  stuck:['这一步我没看懂','我试过了，但结果不一样','我该怎样检查数据？'],
-  reflect:['我想说说今天的发现','怎么检查自己的结果？','下次可以怎样做得更好？'],
-}
-async function scroll(){await nextTick();if(follow.value&&transcript.value)transcript.value.scrollTop=transcript.value.scrollHeight}
-watch(()=>messages.value.at(-1)?.text,scroll,{immediate:true})
-watch(thinking,scroll)
-function onScroll(){const el=transcript.value;if(el)follow.value=el.scrollHeight-el.scrollTop-el.clientHeight<100}
-function submit(text=draft.value){if(!text.trim()||busy.value||text.length>2000)return;follow.value=true;send(text);nextTick(()=>input.value?.focus())}
+const {state,activity,current,count,complete,records,saveError,persist,enter:enterActivity,reset}=useTeachingLearning()
+const {messages,draft,busy,thinking,mood,canSend,send,stop,error:chatError,retry:retryChat}=useTeachingChat(state,persist,()=>operationOpen.value?'task':'dialogue')
+const calculationHint=ref(''),explorationHint=ref('')
+function explorationChanged(){explorationHint.value='';boundary.value=messages.value.at(-1)?.id||0;state.value.activities.explore_2d.operation={status:'pending',source:'backend',result:null,updatedAt:null}}
+function explorationCalculated(result:Analysis){state.value.activities.explore_2d.operation={status:'completed',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};explorationHint.value=`先看看两种颜色的点各在哪里：哪一组更靠右，哪一组更靠上？试着用自己的话说说两组有什么不同。`;boundary.value=messages.value.at(-1)?.id||0}
+function explorationSubmitted(saved:ExplorationSubmission){const result=state.value.activities.explore_2d.operation.result as unknown as Analysis;recordExploration(state.value,saved,result);persist()}
+function calculated(result:Calculation){current.value.operation={status:result.converged?'completed':'pending',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};calculationHint.value=result.converged?'两组的书和中心都不再变化了。你可以看着计算过程，自己写下两组的数量和最后的中心。':`这一轮分好了！把这一组中每本书的借阅次数加起来，再除以这一组有几本书，就得到新的中心。`;boundary.value=messages.value.at(-1)?.id||0;persist()}
+function calculationSubmitted(saved:CalculationSubmission){recordCalculation(state.value,saved);persist();operationOpen.value=false;calculationHint.value='';boundary.value=messages.value.at(-1)?.id||0;window.scrollTo({top:0,behavior:'smooth'})}
+const entry=ref<'hello'|'story'|'learning'>('hello'),bubbleVisible=ref(false),operationOpen=ref(false)
+// With the task closed, return to the same conversation composition as the opening.
+const dialogueFocus=computed(()=>entry.value==='learning'&&!operationOpen.value)
+const recordsOpen=ref(false),historyOpen=ref(false),input=ref<HTMLTextAreaElement>()
+const robot=ref<InstanceType<typeof TeachingRobot>>()
+const boundary=ref(messages.value.at(-1)?.id||0)
+let welcomeTimer:ReturnType<typeof setTimeout>|undefined
+onMounted(()=>{welcomeTimer=setTimeout(()=>{bubbleVisible.value=true},350)})
+onBeforeUnmount(()=>{if(welcomeTimer)clearTimeout(welcomeTimer)})
+const latestReply=computed(()=>messages.value.findLast(m=>m.role==='assistant'&&m.kind==='chat'&&m.activityId===activity.value.id&&m.id>boundary.value&&(m.text||m.paused||m.error)))
+const speech=computed(()=>{
+  if(entry.value==='hello')return '你好，我是小知。\n今天，我陪你一起帮图书馆想办法。'
+  if(entry.value==='story')return '图书馆想把借得多和借得少的书分开。\n我们先看看五本书，一起试试怎样分组，好吗？'
+  if(activity.value.id==='explore_2d'&&explorationHint.value)return explorationHint.value
+  if(activity.value.id==='group_books'&&calculationHint.value)return calculationHint.value
+  return activity.value.introduction
+})
+const operationLabel=computed(()=>['看看这五本书','看看这四个步骤','准备一张表格'][activity.value.number-1])
+function start(){entry.value='learning';operationOpen.value=true;boundary.value=messages.value.at(-1)?.id||0}
+function submit(text=draft.value){if(!text.trim()||busy.value||text.length>2000)return;send(text);nextTick(()=>input.value?.focus())}
 function enter(event:KeyboardEvent){if(event.shiftKey||event.isComposing||event.keyCode===229)return;event.preventDefault();submit()}
-function choose(value:Topic){selectTopic(value);nextTick(()=>input.value?.focus())}
+function openTask(){boundary.value=messages.value.at(-1)?.id||0;operationOpen.value=true}
+function submitOrder(order:string[]){stop();boundary.value=messages.value.at(-1)?.id||0;recordStepOrder(state.value,order);persist()}
+function continueToThree(){if(enterActivity('explore_2d')){operationOpen.value=false;window.scrollTo({top:0,behavior:'smooth'})}}
+
+function review(id:ActivityId){if(busy.value)return;stop();if(enterActivity(id)){recordsOpen.value=false;entry.value='learning';operationOpen.value=false;boundary.value=messages.value.at(-1)?.id||0}}
+watch(()=>activity.value.id,()=>{boundary.value=messages.value.at(-1)?.id||0})
 async function restart(){
-  if(messages.value.some(m=>m.role==='student')){
-    try{await ElMessageBox.confirm('重新开始会清空这段示例对话。要继续吗？','重新开始',{confirmButtonText:'重新开始',cancelButtonText:'继续聊',type:'info'})}catch{return}
-  }
-  reset();follow.value=true;await scroll();input.value?.focus()
+  try{await ElMessageBox.confirm('要重新开始这次体验吗？','重新开始',{confirmButtonText:'重新开始',cancelButtonText:'继续学习'})}catch{return}
+  stop();reset();entry.value='hello';operationOpen.value=false;boundary.value=messages.value.at(-1)?.id||0
+}
+function menu(command:string){
+  if(command==='records')recordsOpen.value=true
+  if(command==='history')historyOpen.value=true
+  if(command==='restart')restart()
+  if(command==='robot')robot.value?.reset()
+  if(command==='about')ElMessageBox.alert('活动1由后台真实计算并保存结果。自由提问使用真实模型流式回复，开场和任务提示为预设教学说明。活动2支持拖动排序，反馈由固定规则生成。活动3使用上传的Excel真实计算和作图，小知会结合本次实际结果解释。','功能说明',{confirmButtonText:'知道了'}).catch(()=>{})
 }
 </script>
 
 <template>
-  <div class="teaching-page">
-    <header class="teaching-header">
-      <RouterLink class="teaching-brand" to="/" aria-label="Orbit 项目首页"><span class="teaching-brand-mark"><el-icon><Position/></el-icon></span>orbit<span class="teaching-brand-divider"/><span class="teaching-page-label">教学 Agent</span></RouterLink>
-      <RouterLink class="teaching-home-link" to="/"><el-icon><ArrowLeft/></el-icon>返回项目首页</RouterLink>
-    </header>
-
-    <main class="teaching-layout">
-      <aside class="teaching-companion">
-        <div class="companion-intro"><span class="companion-eyebrow">一起想，一起学</span><h1>嗨，我是小知<span> ✦</span></h1><p>你的学习搭子，陪你找到下一步。</p></div>
-        <div class="robot-stage"><span class="robot-speech">{{thinking?'让我想一想……':busy?'我们一步一步来！':'今天想一起探索什么？'}}</span><TeachingRobot :mood="mood"/></div>
-        <div class="topic-section"><h2>从这里开始</h2><button v-for="item in topics" :key="item.id" class="topic-button" :class="{selected:topic===item.id}" :aria-pressed="topic===item.id" @click="choose(item.id)"><span class="topic-icon"><el-icon><component :is="item.icon"/></el-icon></span><span><strong>{{item.label}}</strong><small>{{item.hint}}</small></span><span class="topic-arrow">↗</span></button></div>
-        <p class="companion-note">不着急，我们先迈出一小步。</p>
-      </aside>
-
-      <section class="teaching-chat" aria-label="与小知对话">
-        <header class="teaching-chat-header"><div class="chat-title"><span class="chat-title-icon"><el-icon><ChatDotRound/></el-icon></span><div><h2>和小知聊一聊</h2><p>把问题说出来，思路就开始了。</p></div></div><button class="chat-restart" :disabled="busy" @click="restart"><el-icon><RefreshLeft/></el-icon><span>重新开始</span></button></header>
-        <div class="teaching-demo-banner"><span class="demo-badge">示例对话</span><span>当前使用预设示例回复，尚未接入真实 AI。</span></div>
-        <div ref="transcript" class="teaching-transcript" role="log" aria-label="对话记录" :aria-live="busy?'off':'polite'" @scroll="onScroll">
-          <div class="conversation-divider"><span>让学习从一个问题开始</span></div>
-          <article v-for="message in messages" :key="message.id" class="teaching-message" :class="message.role">
-            <div v-if="message.role==='assistant'" class="message-avatar"><TeachingRobot compact/></div>
-            <div class="message-main"><span class="message-name">{{message.role==='assistant'?'小知':'我'}}</span><div class="message-bubble"><p>{{message.text}}</p><span v-if="message.paused" class="message-paused">示例回复已暂停</span></div></div>
-            <span v-if="message.role==='student'" class="student-avatar">我</span>
-          </article>
-          <div v-if="thinking" class="typing-indicator" role="status" aria-label="小知正在准备示例回复"><span/><span/><span/></div>
-          <div v-if="messages.length===1" class="conversation-welcome"><span class="welcome-star">✦</span><p>不知道怎么开口？试试下面的小问题。</p></div>
+  <div class="teaching-page minimal-teaching">
+    <header class="minimal-header"><RouterLink to="/" class="minimal-back" aria-label="返回项目首页"><el-icon><ArrowLeft/></el-icon><span>返回</span></RouterLink><div class="minimal-menu"><span class="demo-mark">AI 对话</span><el-dropdown trigger="click" @command="menu"><button class="more-button" aria-label="更多" :disabled="busy"><el-icon><MoreFilled/></el-icon></button><template #dropdown><el-dropdown-menu><el-dropdown-item command="history">对话记录</el-dropdown-item><el-dropdown-item command="records">学习记录</el-dropdown-item><el-dropdown-item command="robot">小知转回正面</el-dropdown-item><el-dropdown-item command="restart">重新开始</el-dropdown-item><el-dropdown-item command="about" divided>功能说明</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></header>
+    <main class="minimal-scene" :class="{'has-operation':operationOpen,'dialogue-focus':dialogueFocus,'wide-task':entry==='learning'&&operationOpen&&activity.id==='explore_2d'}">
+      <div class="robot-stage" :class="{'has-chat-reply':entry==='learning'&&operationOpen}"><div class="robot-figure"><section v-if="entry==='learning'&&operationOpen&&(activity.id==='group_books'||explorationHint||latestReply||thinking)" class="robot-chat-bubble" aria-label="小知的话" aria-live="polite"><p v-if="!latestReply&&!thinking&&(activity.id==='group_books'||explorationHint)" class="task-guidance">{{speech}}</p><p v-if="latestReply?.text" class="question-reply">{{latestReply.text}}</p><small v-if="latestReply?.paused" class="chat-state" role="status">已暂停回复</small><small v-else-if="latestReply?.error" class="chat-state">回复未完成</small><span v-else-if="thinking" class="chat-state" role="status">小知正在思考…</span></section><TeachingRobot ref="robot" :mood="mood" :show-controls="false"/></div><form v-if="entry==='learning'" class="minimal-composer" @submit.prevent="submit()"><label class="sr-only" for="teaching-input">和小知说说你的问题</label><textarea id="teaching-input" ref="input" v-model="draft" rows="1" maxlength="2000" placeholder="和小知说说你的想法……" @keydown.enter="enter"/><button v-if="busy" type="button" class="send-button stop-button" aria-label="暂停回复" @click="stop">■</button><button v-else class="send-button" type="submit" aria-label="发送" :disabled="!canSend"><el-icon><Promotion/></el-icon></button></form><p v-if="chatError" class="chat-error" role="alert">{{chatError}} <button :disabled="busy" @click="retryChat">重试</button></p></div>
+      <div class="minimal-conversation">
+        <Transition name="speech" appear><section v-if="bubbleVisible&&(entry!=='learning'||dialogueFocus)" class="xiaozhi-speech" aria-label="小知的话" aria-live="polite"><p>{{speech}}</p><p v-if="dialogueFocus&&latestReply?.text" class="dialogue-reply">{{latestReply.text}}</p><small v-if="dialogueFocus&&latestReply?.paused" class="chat-state" role="status">已暂停回复</small><small v-else-if="dialogueFocus&&latestReply?.error" class="chat-state">回复未完成</small><span v-else-if="dialogueFocus&&thinking" class="chat-state" role="status">小知正在思考…</span></section></Transition>
+        <div v-if="bubbleVisible" class="speech-actions">
+          <button v-if="entry==='hello'" class="primary-response" @click="entry='story'">你好，小知</button>
+          <button v-else-if="entry==='story'" class="primary-response" @click="start">{{count?'继续学习':'我们试试'}}</button>
+          <button v-else-if="!operationOpen&&!complete" class="primary-response" :class="{'enter-activity-two':activity.id==='explain_algorithm'}" :disabled="busy" @click="openTask">{{activity.id==='explain_algorithm'?'进入活动2':operationLabel}}</button>
         </div>
-        <footer class="teaching-composer">
-          <div class="starter-prompts" aria-label="快捷提问"><button v-for="text in starters[topic]" :key="text" :disabled="busy" @click="submit(text)">{{text}}<span>↗</span></button></div>
-          <form class="composer-box" @submit.prevent="submit()"><label class="sr-only" for="teaching-input">和小知说说你的问题</label><textarea id="teaching-input" ref="input" v-model="draft" maxlength="2000" rows="2" placeholder="我正在做……，我想知道……" @keydown.enter="enter"/><div class="composer-bottom"><span class="composer-key-hint">Enter 发送 · Shift + Enter 换行</span><button v-if="busy" type="button" class="chat-stop" @click="stop"><span/>暂停回复</button><button v-else type="submit" class="chat-send" :disabled="!canSend">发送<el-icon><Promotion/></el-icon></button></div></form>
-          <p v-if="saveError" class="chat-save-error" role="status">{{saveError}}</p><p v-else class="chat-local-note">示例对话仅保存在当前浏览器中</p>
-        </footer>
-      </section>
+        <template v-if="entry==='learning'">
+          <div v-if="operationOpen" class="minimal-operation"><CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @result="calculated" @submitted="calculationSubmitted" @restored="saved=>{recordCalculation(state,saved,false);persist()}"/><AlgorithmSteps v-else-if="activity.id==='explain_algorithm'" :draft="current.draft" :disabled="busy" @submit="submitOrder"/><ExcelExperiment v-else :session-id="state.sessionId" :draft="current.draft" @changed="explorationChanged" @result="explorationCalculated" @submitted="explorationSubmitted"/><div class="operation-actions"><button v-if="activity.id==='explain_algorithm'&&canEnter(state,'explore_2d')" class="primary-response enter-activity-two" :disabled="busy" @click="continueToThree">进入活动3 →</button></div></div>
+
+          <p v-if="saveError" class="save-error" role="status">{{saveError}}</p>
+        </template>
+      </div>
     </main>
+    <el-drawer v-model="historyOpen" title="对话记录" size="min(560px, 92vw)" class="minimal-history"><article v-for="message in messages" :key="message.id" class="history-message" :class="message.role"><small>{{message.role==='assistant'?'小知':'我'}}</small><p>{{message.text}}</p><small v-if="message.paused">已暂停</small><small v-if="message.error">{{message.error}}</small></article></el-drawer>
+    <el-drawer v-model="recordsOpen" title="学习记录" size="min(560px, 92vw)" class="teaching-records"><p class="records-explanation">活动1保存你的填写结果与实际计算结果。活动2保存每次排序及反馈，活动3保存你填写的数量与分组特点。</p><article v-for="item in records" :key="item.id" class="teaching-record-card"><h3>{{item.title}}</h3><p>{{item.state.submissions.length?(item.id==='group_books'?'已提交':'已体验'):canEnter(state,item.id)?'还没有体验':'稍后开始'}}</p><section v-for="record in item.state.submissions" :key="record.id" class="preview-submission"><time>{{new Date(record.createdAt).toLocaleString('zh-CN')}}</time><div v-if="record.payload.calculation"><p>我的填写：两组各{{record.payload.calculation.payload.student_result.counts.join('、')}}本；中心{{record.payload.calculation.payload.student_result.centers.join('、')}}。</p><details><summary>查看实际计算</summary><p>两组各{{record.payload.calculation.payload.tool_result.counts.join('、')}}本；中心{{record.payload.calculation.payload.tool_result.centers.join('、')}}。</p></details></div><div v-if="record.payload.sorting"><p>我的排序：{{record.payload.sorting.order.map(id=>algorithmSteps.find(s=>s.id===id)?.text).join(' → ')}}</p><p>{{record.payload.sorting.feedback}}</p></div><div v-if="record.payload.exploration"><p>文件：{{record.payload.exploration.payload.teaching_context.filename}}</p><p>分析列：{{record.payload.exploration.payload.features.map(f=>f.name).join('、')}}</p><p>我的填写：两组各{{record.payload.exploration.payload.student_result.counts.join('、')}}条。</p><p>{{record.payload.exploration.payload.student_result.description}}</p></div><p v-if="record.payload.note">{{record.payload.note}}</p></section><button :disabled="busy||!canEnter(state,item.id)" @click="review(item.id)">回到这里</button></article></el-drawer>
   </div>
 </template>
 
 <style scoped>
-.teaching-page{height:100dvh;min-height:600px;background:#f5f5fa;color:#34334c;display:flex;flex-direction:column;font-size:16px;overflow:hidden}
-.teaching-header{height:76px;flex-shrink:0;padding:0 36px;background:#ffffffed;border-bottom:1px solid #e8e6f0;display:flex;align-items:center;justify-content:space-between;gap:20px}
-.teaching-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:#292539;font-size:28px;font-weight:750;letter-spacing:-1px}
-.teaching-brand-mark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#7c5ce0;color:white;font-size:22px;transform:rotate(-8deg)}
-.teaching-brand-divider{height:25px;width:1px;background:#e4dfef;margin:0 8px 0 16px}.teaching-page-label{font-size:16px;letter-spacing:0;font-weight:650;color:#65537e}
-.teaching-home-link{display:flex;align-items:center;gap:8px;color:#7b718e;text-decoration:none;font-size:14px}.teaching-home-link:hover{color:#7855cb}
-.teaching-layout{display:grid;grid-template-columns:330px minmax(0,1fr);width:100%;max-width:1370px;min-height:0;flex:1;margin:0 auto;padding:28px 32px;gap:28px}
-.teaching-companion{min-height:0;overflow:auto;display:flex;flex-direction:column;padding:12px 4px 0}.companion-eyebrow{font-size:13px;letter-spacing:2px;color:#9786af}.companion-intro h1{font-size:29px;font-weight:720;line-height:1.5;color:#4d3f67;margin:12px 0 6px}.companion-intro h1 span{color:#bca7db;font-size:23px}.companion-intro>p{font-size:15px;color:#8a7e9b;line-height:1.8;margin:0}
-.robot-stage{position:relative;max-width:280px;width:100%;margin:40px auto 0}.robot-speech{position:absolute;z-index:1;top:-20px;right:0;background:#fff;border:1px solid #e8e1f4;border-radius:13px 13px 13px 2px;padding:10px 14px;color:#8b78a5;font-size:13px;box-shadow:0 5px 14px #8770aa08;white-space:nowrap}
-.topic-section{margin-top:4px}.topic-section h2{font-size:13px;color:#9b90aa;font-weight:500;margin:0 0 12px;letter-spacing:1px}.topic-button{display:flex;align-items:center;gap:12px;width:100%;border:1px solid transparent;background:transparent;border-radius:12px;text-align:left;padding:12px;margin:3px 0;color:#7d728d;transition:background .2s,border-color .2s}.topic-button:hover{background:#eeebf7}.topic-button.selected{background:#fff;border-color:#e7def5;box-shadow:0 4px 13px #5e398106}.topic-icon{display:grid;place-items:center;width:37px;height:37px;flex-shrink:0;border-radius:11px;background:#eae4f6;color:#967ac1;font-size:20px}.topic-button strong{display:block;font-size:15px;font-weight:650;color:#655476}.topic-button small{display:block;font-size:12px;margin-top:5px;color:#a096ad}.topic-arrow{margin-left:auto;color:#b7a6cd}.companion-note{font-size:12px;text-align:center;color:#aea3ba;margin:22px 0 0}
-.teaching-chat{min-height:0;min-width:0;display:flex;flex-direction:column;background:#fff;border:1px solid #e9e4f1;border-radius:20px;box-shadow:0 8px 35px #67507506;overflow:hidden}
-.teaching-chat-header{padding:22px 28px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #f0ecf5}.chat-title{display:flex;align-items:center;gap:13px}.chat-title-icon{display:grid;place-items:center;width:43px;height:43px;border-radius:13px;background:#f0eafb;color:#997bca;font-size:23px}.chat-title h2{font-size:18px;font-weight:700;color:#58456f;margin:0}.chat-title p{font-size:12px;color:#a89bb6;margin:6px 0 0}.chat-restart{display:flex;align-items:center;gap:6px;flex-shrink:0;border:0;background:transparent;font-size:13px;color:#a093ae;padding:8px}.chat-restart:hover{color:#7656b1}.chat-restart:disabled{opacity:.4}
-.teaching-demo-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 28px;background:#fcfbfe;color:#a49aad;font-size:12px;border-bottom:1px solid #f3eff8}.demo-badge{padding:3px 8px;border-radius:5px;background:#eee7f8;color:#9479b5;white-space:nowrap}
-.teaching-transcript{min-height:0;flex:1;overflow:auto;padding:0 28px 24px;scrollbar-width:thin;scrollbar-color:#e5ddf0 transparent}.conversation-divider{display:flex;align-items:center;gap:15px;color:#beb3c8;font-size:11px;justify-content:center;padding:24px 0}.conversation-divider::before,.conversation-divider::after{content:'';height:1px;width:50px;background:#efeaf5}.teaching-message{display:flex;align-items:flex-start;gap:12px;margin-bottom:24px}.message-avatar{width:40px;height:40px;flex-shrink:0;background:#f4effb;border:1px solid #e9e1f3;border-radius:13px;overflow:hidden;display:flex;align-items:center;justify-content:center}.message-main{max-width:83%;min-width:0}.message-name{display:block;color:#a399b0;font-size:12px;margin:0 0 8px 2px}.message-bubble{padding:16px 20px;background:#faf8fe;border:1px solid #eee8f6;border-radius:0 15px 15px 15px}.message-bubble p{font-size:16px;line-height:1.9;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:#6d5c7e}.teaching-message.student{justify-content:flex-end}.student .message-name{text-align:right;margin-right:3px}.student .message-bubble{background:#8a6aca;border-color:#8a6aca;border-radius:15px 0 15px 15px}.student .message-bubble p{color:#fff}.student-avatar{display:grid;place-items:center;width:36px;height:36px;flex-shrink:0;border-radius:12px;background:#eee9f7;color:#9a84b9;font-size:13px}.message-paused{display:block;color:#aa9bb9;font-size:11px;margin-top:12px}.typing-indicator{display:flex;gap:5px;margin:0 0 24px 52px;padding:10px 0}.typing-indicator span{width:6px;height:6px;border-radius:50%;background:#b09acb;animation:typing 1s infinite}.typing-indicator span:nth-child(2){animation-delay:.15s}.typing-indicator span:nth-child(3){animation-delay:.3s}.conversation-welcome{padding:30px 0 18px;text-align:center;color:#b2a5c0;font-size:13px}.welcome-star{font-size:28px;color:#d4c4e7}.conversation-welcome p{margin-top:12px}
-.teaching-composer{flex-shrink:0;padding:0 26px 12px;background:#fff}.starter-prompts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.starter-prompts button{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #eae2f4;border-radius:8px;padding:9px 11px;color:#9d8bb1;font-size:12px;transition:border-color .2s,color .2s}.starter-prompts button:hover{border-color:#b59bdb;color:#7855b0}.starter-prompts button:disabled{opacity:.4}.starter-prompts button span{color:#bdabce}.composer-box{padding:15px 17px 12px;border:1px solid #e6dcef;border-radius:13px;background:#fdfcfe;transition:border-color .2s,box-shadow .2s}.composer-box:focus-within{border-color:#b69ad8;box-shadow:0 0 0 3px #b69ad80b}.composer-box textarea{display:block;width:100%;border:0;outline:none;resize:none;background:transparent;font-size:16px;line-height:1.7;color:#69567b;min-height:55px;max-height:160px}.composer-box textarea::placeholder{color:#bbb0c8}.composer-bottom{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}.composer-key-hint{font-size:11px;color:#c0b4ca}.chat-send,.chat-stop{display:flex;align-items:center;gap:9px;justify-content:center;min-height:36px;border:0;border-radius:8px;background:#8a6aca;color:white;padding:8px 15px;font-size:13px}.chat-send:hover{background:#7957b9}.chat-send:disabled{background:#e7e0f0;color:#bcb0cd}.chat-stop{background:#eee8f6;color:#9173b6}.chat-stop>span{width:8px;height:8px;background:currentColor;border-radius:2px}.chat-local-note,.chat-save-error{text-align:center;font-size:11px;color:#c2b8cb;margin:10px 0 0}.chat-save-error{color:#b38b6e}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.teaching-demo-banner{color:#81718f}.demo-badge{color:#7e609f}.starter-prompts button{color:#857096}.chat-restart{color:#877594}.topic-button small{color:#8c7c9c}
-button:focus-visible,a:focus-visible{outline:3px solid #b8a0de;outline-offset:3px}@keyframes typing{50%{opacity:.25;transform:translateY(-3px)}}
-@media(max-height:820px) and (min-width:901px){.teaching-layout{padding-top:20px;padding-bottom:20px}.robot-stage{max-width:210px;margin-top:32px}.companion-intro h1{font-size:26px}.topic-button{padding:9px}.companion-note{margin-top:12px}.teaching-chat-header{padding:17px 24px}.conversation-welcome{padding-top:12px}}
-@media(max-width:1050px){.teaching-layout{grid-template-columns:275px minmax(0,1fr);padding:22px;gap:20px}.robot-stage{max-width:245px}.starter-prompts{gap:6px}.starter-prompts button{font-size:11px;padding:8px}.teaching-chat-header{padding:20px}.teaching-demo-banner{padding-left:20px;padding-right:20px}.teaching-composer{padding-left:20px;padding-right:20px}.teaching-transcript{padding-left:20px;padding-right:20px}}
-@media(max-width:900px){.teaching-page{height:auto;min-height:100dvh;overflow:visible}.teaching-header{height:68px;padding:0 20px}.teaching-layout{display:flex;flex-direction:column;padding:20px;gap:18px}.teaching-companion{overflow:visible;padding:0}.companion-intro{padding-right:100px;position:relative}.companion-intro h1{font-size:25px;margin:5px 0}.companion-intro>p{font-size:13px}.companion-eyebrow{font-size:11px}.robot-stage{position:absolute;right:24px;top:84px;width:95px;margin:0}.robot-speech,.companion-note{display:none}.topic-section{margin-top:18px;display:flex;gap:8px}.topic-section h2{display:none}.topic-button{padding:9px;gap:8px;margin:0;width:auto;flex:1}.topic-button small,.topic-arrow{display:none}.topic-button strong{font-size:12px}.topic-icon{width:28px;height:28px;font-size:16px;border-radius:9px}.teaching-chat{height:720px;min-height:560px;max-height:calc(100dvh - 90px)}.teaching-page-label{font-size:14px}.teaching-brand-divider{margin-left:7px}.teaching-home-link{font-size:12px}}
-@media(max-width:520px){.teaching-layout{padding:14px;gap:16px}.teaching-header{padding:0 16px}.teaching-brand{font-size:24px;gap:7px}.teaching-brand-divider{margin-right:2px}.teaching-page-label{font-size:12px}.teaching-brand-mark{width:28px;height:28px}.teaching-home-link{font-size:11px;gap:4px}.teaching-chat{border-radius:15px;height:680px}.teaching-chat-header{padding:16px 14px}.chat-title{gap:8px}.chat-title h2{font-size:16px}.chat-title p{font-size:11px}.chat-title-icon{width:35px;height:35px;font-size:19px}.chat-restart{font-size:11px;padding:5px}.teaching-transcript{padding:0 14px 16px}.teaching-demo-banner{padding:9px 14px;font-size:10px;gap:6px}.teaching-message{gap:8px}.message-avatar{width:32px;height:32px;border-radius:10px}.message-main{max-width:84%}.message-bubble{padding:12px 14px}.message-bubble p{font-size:15px}.student-avatar{display:none}.starter-prompts button{font-size:11px}.starter-prompts button:last-child{display:none}.teaching-composer{padding:0 12px 10px}.composer-key-hint{font-size:9px}.topic-button{padding:8px 5px;gap:5px}.topic-button strong{font-size:11px}.robot-stage{right:14px}.companion-intro h1{font-size:24px}}
-@media(prefers-reduced-motion:reduce){.typing-indicator span{animation:none}}
+.chat-state{display:block;color:#9b83ad;font-size:14px;line-height:1.8;margin-top:10px}.chat-error{font-size:14px;line-height:1.8;color:#aa6157;overflow-wrap:anywhere}.chat-error button{border:0;background:transparent;color:#8862b2;cursor:pointer;font-size:14px;padding:4px 6px}
+@media(min-width:1101px){.minimal-scene.wide-task{max-width:1480px;grid-template-columns:260px minmax(0,1fr);gap:32px;padding-left:32px;padding-right:32px}}
+.robot-chat-bubble .question-reply:first-child{margin-top:0;padding-top:0;border-top:0}
+.enter-activity-two{position:fixed;right:32px;bottom:28px;z-index:20}
+.dialogue-focus .robot-stage{position:static}.xiaozhi-speech .dialogue-reply{margin-top:20px;padding-top:18px;border-top:1px solid #eee5f5;font-size:16px;color:#8a739d}
+.robot-figure{position:relative}.robot-chat-bubble{position:relative;margin-bottom:24px;left:50%;transform:translateX(-50%);width:300px;max-width:calc(100vw - 48px);box-sizing:border-box;background:white;border:1px solid #e5d8f0;border-radius:20px;padding:18px 22px;box-shadow:0 8px 28px #80629912}.robot-chat-bubble::after{content:"";position:absolute;bottom:-8px;left:50%;width:14px;height:14px;background:white;border-right:1px solid #e5d8f0;border-bottom:1px solid #e5d8f0;transform:rotate(45deg)}.robot-chat-bubble p{margin:0;font-size:16px;line-height:1.8;white-space:pre-wrap}.robot-chat-bubble .question-reply{margin-top:14px;padding-top:14px;border-top:1px solid #eee5f5;color:#8a739d}.robot-stage.has-chat-reply{padding-top:0}.has-operation .minimal-operation{margin-top:0}.has-operation .speech-actions{margin-top:0}
+.teaching-page{min-height:100dvh;background:radial-gradient(ellipse at 35% 48%,#f0eaf9 0,transparent 48%),#faf9fd;color:#5e4c73;font-size:16px}.minimal-header{height:72px;display:flex;align-items:center;justify-content:space-between;padding:0 36px}.minimal-back{display:flex;align-items:center;gap:7px;color:#9b8caa;text-decoration:none;font-size:14px}.minimal-back:hover{color:#795b9b}.minimal-menu{display:flex;align-items:center;gap:14px}.demo-mark{font-size:11px;color:#b0a2bd}.more-button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:#a995ba;font-size:20px}.more-button:hover{background:#efe8f6}.minimal-scene{display:grid;grid-template-columns:340px minmax(0,530px);align-items:center;justify-content:center;gap:64px;max-width:1100px;min-height:calc(100dvh - 140px);padding:40px 36px 100px;margin:0 auto}.robot-stage{width:100%;position:sticky;top:140px;align-self:center}.minimal-conversation{min-width:0}.xiaozhi-speech{position:relative;padding:30px 34px;background:#fff;border:1px solid #ede6f5;border-radius:25px 25px 25px 5px;box-shadow:0 12px 40px #82669b09}.xiaozhi-speech::before{content:'';position:absolute;left:-13px;top:49%;width:24px;height:24px;background:white;border-left:1px solid #ede6f5;border-bottom:1px solid #ede6f5;transform:rotate(45deg)}.xiaozhi-speech p{position:relative;font-size:20px;line-height:1.95;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:#6e577f}.speech-dots{display:block;color:#b69acb;letter-spacing:5px;margin-top:10px}.speech-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:22px}.primary-response{border:0;border-radius:12px;background:#9070c1;color:white;font-size:16px;padding:12px 24px;line-height:1.7;box-shadow:0 5px 14px #8d6bb819}.primary-response:hover{background:#7e5bac}.primary-response:disabled{opacity:.5}.minimal-composer{display:flex;align-items:flex-end;gap:12px;margin-top:28px;padding:8px 3px 10px;border-bottom:1px solid #dcd1e9}.minimal-composer textarea{flex:1;min-width:0;min-height:32px;max-height:140px;resize:vertical;background:transparent;outline:none;border:0;color:#765f89;font-size:16px;line-height:1.8;padding:1px 3px}.minimal-composer textarea::placeholder{color:#b5a6c2}.send-button{display:grid;place-items:center;flex-shrink:0;width:36px;height:36px;border:0;border-radius:50%;background:#9577c0;color:white;font-size:20px}.send-button:disabled{color:#c4b5d2;background:#ece5f4}.stop-button{font-size:13px}.minimal-operation{margin-top:24px}.minimal-operation :deep(.activity-preview-card){margin:0;background:#ffffffc9;padding:20px;border-radius:16px}.operation-actions{display:flex;justify-content:space-between;gap:12px;margin-top:12px}.quiet-button{padding:8px 4px;font-size:13px;border:0;background:transparent;color:#ad9abf}.next-preview{color:#8e6baa}.quiet-button:hover{color:#705087}.save-error{font-size:12px;line-height:1.8;color:#ab7e73}.speech-enter-active{transition:opacity .5s ease,transform .5s ease}.speech-enter-from{opacity:0;transform:translateY(14px) scale(.98)}.history-message{padding:16px;border-radius:12px;background:#f8f4fc;margin-bottom:14px}.history-message.student{background:#eee6f7}.history-message small{font-size:12px;color:#aa94b9}.history-message p{font-size:16px;line-height:1.9;color:#765e88;white-space:pre-wrap;margin:8px 0}.records-explanation{font-size:13px;line-height:1.8;color:#a08eac}.teaching-record-card{padding:18px 0;border-bottom:1px solid #ece5f3}.teaching-record-card h3{font-size:16px;color:#79618c;line-height:1.7;margin:0 0 10px}.teaching-record-card>p{font-size:14px;color:#a28eb1}.teaching-record-card button{border:1px solid #e2d6ed;border-radius:8px;background:white;padding:7px 11px;color:#997cad;font-size:13px}.teaching-record-card button:disabled{opacity:.4}.preview-submission time{font-size:12px;color:#b2a0bf}.preview-submission p{font-size:14px;line-height:1.8;color:#8d749d}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}button:focus-visible,a:focus-visible{outline:3px solid #cab6e2;outline-offset:4px}
+@media(min-width:901px){.has-operation{align-items:start;padding-top:70px}.has-operation .robot-stage{align-self:start}}
+@media(max-width:900px){.minimal-header{height:60px;padding:0 22px}.minimal-scene{grid-template-columns:240px minmax(0,1fr);gap:32px;min-height:calc(100dvh - 80px);padding:30px 28px 80px}.xiaozhi-speech{padding:24px}.xiaozhi-speech p{font-size:18px}.robot-stage{position:static}.primary-response{font-size:15px}}
+@media(max-width:650px){.minimal-scene{display:flex;flex-direction:column;gap:16px;justify-content:center;padding:18px 24px 60px;min-height:calc(100dvh - 80px)}.robot-stage{max-width:230px;margin:0 auto}.minimal-conversation{width:100%;max-width:500px}.xiaozhi-speech{padding:22px 24px;border-radius:20px}.xiaozhi-speech::before{left:45%;top:-12px;transform:rotate(135deg);width:20px;height:20px}.xiaozhi-speech p{font-size:18px;line-height:1.9}.speech-actions{margin-top:18px}.minimal-composer{margin-top:22px}.has-operation{justify-content:flex-start}.has-operation .robot-stage{max-width:350px}.has-operation .robot-figure{max-width:155px;margin:auto}.minimal-operation :deep(.activity-preview-card){padding:16px}.demo-mark{font-size:10px}}
+.robot-figure:has(.robot-chat-bubble){--robot-chat-reserve:200px;padding-top:var(--robot-chat-reserve)}
+.has-operation .robot-stage{box-sizing:border-box;padding-top:20px}.robot-chat-bubble{position:absolute;top:auto;bottom:calc(100% - var(--robot-chat-reserve) + 14px);margin:0}
+@media(prefers-reduced-motion:reduce){.speech-enter-active{transition:none}}
 </style>
