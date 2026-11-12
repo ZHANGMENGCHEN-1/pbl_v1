@@ -5,6 +5,15 @@ import type {ActivityDraft} from './learningState'
 const props=defineProps<{sessionId:string;draft:ActivityDraft}>()
 const emit=defineEmits<{result:[Calculation];submitted:[CalculationSubmission];restored:[CalculationSubmission]}>()
 const rounds=ref<Calculation[]>([]),selected=ref(''),loading=ref(false),error=ref(''),formOpen=ref(false)
+const studentGroups=ref<Record<string,string>>({})
+const roundSaved=ref('')
+async function saveRound(){
+  const current=result.value;if(!current||loading.value)return
+  const groups=Object.fromEntries(current.records.map(book=>[book.id,Number(studentGroups.value[`${current.id}:${book.id}`])]))
+  if(Object.values(groups).some(value=>value!==1&&value!==2)){error.value='请先为五本书选择分组。';return}
+  loading.value=true;error.value='';roundSaved.value=''
+  try{await calculationRequest(props.sessionId,'round-answers',{result_id:current.id,groups});roundSaved.value=current.id}catch(e){error.value=e instanceof Error?e.message:'保存失败，请重试。'}finally{loading.value=false}
+}
 const result=computed(()=>rounds.value.find(r=>r.id===selected.value))
 const chain=computed(()=>{const list:Calculation[]=[];let r=result.value;while(r){list.unshift(r);r=rounds.value.find(x=>x.id===r!.previous_id)}return list})
 const fmt=(n:number)=>Number.isInteger(n)?String(n):`≈${Number(n.toFixed(3))}`
@@ -30,7 +39,8 @@ async function submit(){
   <div v-if="!result" class="center-inputs"><label v-for="(_,i) in draft.centers" :key="i">开始的中心{{i+1}}<input v-model.number="draft.centers[i]" type="number" min="0" max="20" step="any" :disabled="loading"></label></div>
 
   <template v-if="result">
-   <div class="table-scroll"><table><thead><tr><th>书名（次数）</th><th>到中心1</th><th>到中心2</th><th>分到</th></tr></thead><tbody><tr v-for="book in result.records" :key="book.id"><td>{{book.name}}（{{book.value}}）</td><td>{{fmt(book.distances[0]!)}}</td><td>{{fmt(book.distances[1]!)}}</td><td>第{{book.group+1}}组</td></tr></tbody></table></div>
+   <div class="table-scroll"><table><thead><tr><th>书名（次数）</th><th>到中心1的距离</th><th>到中心2的距离</th><th>分到</th></tr></thead><tbody><tr v-for="book in result.records" :key="book.id"><td>{{book.name}}（{{book.value}}）</td><td>{{fmt(book.distances[0]!)}}</td><td>{{fmt(book.distances[1]!)}}</td><td><select v-model="studentGroups[`${result.id}:${book.id}`]" :aria-label="`${book.name}分到第几组`"><option :value="undefined" disabled>请选择</option><option value="1">第1组</option><option value="2">第2组</option></select></td></tr></tbody></table></div>
+   <button class="round-link" :disabled="loading" @click="saveRound">保存本轮分组作答</button><small v-if="roundSaved===result.id" role="status">本轮作答已保存；修改后可再次保存。</small>
    <div v-for="g in result.groups" :key="g.group" class="group-result"><p>第{{g.group+1}}组：{{g.values.join('、')||'没有书'}}，共{{g.count}}本。</p><p v-if="g.count" class="center-equation">新中心：({{g.values.join(' + ')}}) ÷ {{g.count}} {{Number.isInteger(g.center)?'=':''}} {{fmt(g.center)}}</p><p v-else>这一组没有书，保留原中心。</p></div>
    <p v-for="warning in result.warnings" :key="warning">{{warning}}</p>
    <details><summary>查看前面的计算</summary><button v-for="r in chain" :key="r.id" class="round-link" :disabled="loading" @click="selected=r.id">第{{r.round}}轮</button></details><button v-if="selected!==rounds.at(-1)?.id" class="round-link" @click="selected=rounds.at(-1)!.id">回到最新一轮</button>

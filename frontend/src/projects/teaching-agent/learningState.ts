@@ -8,7 +8,7 @@ export interface OperationState {status:OperationStatus;source:'preview'|'backen
 export interface Submission {id:string;activityId:ActivityId;kind:'framework_preview'|'learning_result';createdAt:string;payload:{note:string;draft:ActivityDraft;operation:OperationState;exploration?:ExplorationSubmission;calculation?:CalculationSubmission;sorting?:{order:string[];correct:boolean;feedback:string}}}
 export interface ActivityState {draft:ActivityDraft;operation:OperationState;submissions:Submission[]}
 export interface TeachingMessage {id:number;role:'assistant'|'student';activityId:ActivityId;kind:'introduction'|'chat'|'submission';text:string;paused?:boolean;status?:'streaming'|'completed'|'paused'|'error';error?:string}
-export interface TeachingSession {version:1;mode:'guided_learning';sessionId:string;activeActivityId:ActivityId;activities:Record<ActivityId,ActivityState>;messages:TeachingMessage[]}
+export interface TeachingSession {version:1;mode:'guided_learning';sessionId:string;student?:{className:string;studentNumber:string};activeActivityId:ActivityId;activities:Record<ActivityId,ActivityState>;messages:TeachingMessage[]}
 
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value))
 const newId=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('')
@@ -74,13 +74,13 @@ export function recordCalculation(state:TeachingSession,saved:CalculationSubmiss
   if(advance)enterActivity(state,'explain_algorithm')
 }
 
-export function recordStepOrder(state:TeachingSession,order:string[]){
+export function recordStepOrder(state:TeachingSession,order:string[],saved?:{id:string;created:string;payload:{correct:boolean;feedback:string}}){
   const activity=state.activities.explain_algorithm
-  const checked=checkStepOrder(order),createdAt=new Date().toISOString(),id=newId()
+  const checked=saved?{correct:saved.payload.correct,feedback:saved.payload.feedback}:checkStepOrder(order),createdAt=saved?.created??new Date().toISOString(),id=saved?.id??newId()
   activity.draft.stepOrder=[...order]
   const sorting={order:[...order],...checked}
   activity.operation={status:checked.correct?'completed':'error',source:'local',result:{id,...sorting},updatedAt:createdAt}
-  activity.submissions.push({id,activityId:'explain_algorithm',kind:'learning_result',createdAt,payload:copy({note:activity.draft.note,draft:activity.draft,operation:activity.operation,sorting})})
+  if(!activity.submissions.some(s=>s.id===id))activity.submissions.push({id,activityId:'explain_algorithm',kind:'learning_result',createdAt,payload:copy({note:activity.draft.note,draft:activity.draft,operation:activity.operation,sorting})})
   appendMessage(state,{role:'assistant',activityId:'explain_algorithm',kind:'chat',text:checked.feedback})
   return checked
 }

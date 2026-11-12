@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from ...shared import store
 from .routes import BOOKS, PROJECT, get_step, session_id
 from .excel import owned_analysis, owned_dataset, selected_rows
-from .pedagogy import MAX_REPLY_CHARS, system_prompt
+from .pedagogy import system_prompt
 
 router = APIRouter(prefix='/api/projects/teaching-agent', tags=['teaching-chat'])
 
@@ -119,7 +119,7 @@ def make_model():
         return ChatOpenAI(api_key=os.environ['LLM_API_KEY'], base_url=os.getenv('LLM_BASE_URL', 'https://api.openai.com/v1'),
                           model=os.getenv('LLM_MODEL', 'gpt-4o-mini'), temperature=0.4,
                           timeout=float(os.getenv('LLM_TIMEOUT_SECONDS', '60')), max_retries=0,
-                          max_tokens=max(128, min(int(os.getenv('LLM_MAX_OUTPUT_TOKENS', '256')), 256)),
+                          max_tokens=max(512, min(int(os.getenv('LLM_MAX_OUTPUT_TOKENS', '512')), 1200)),
                           streaming=True, stream_usage=False)
     except (ValueError, TypeError):
         raise HTTPException(503, '模型配置无法读取，请老师检查后端模型参数。')
@@ -128,14 +128,29 @@ def make_model():
 def save_start(session, body, context):
     id = str(uuid4())
     with store.connection() as db:
-        db.execute('INSERT INTO teaching_chats VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO teaching_chats(id,project,session,activity,question,answer,status,context,created,finished,error) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                    (id, PROJECT, session, body.activity_id, body.question, '', 'running', json.dumps(context, ensure_ascii=False), store.now(), None, None))
+        db.execute('UPDATE teaching_chats SET model=?,prompt_version=? WHERE id=?', (os.getenv('LLM_MODEL', 'gpt-4o-mini'), 'teaching-v2-short-natural', id))
+        from .telemetry import event
+        event(db, session, 'help_requested', body.activity_id, id)
     return id
 
 
 def save_finish(id, answer, status, error=None):
     with store.connection() as db:
+        if status == 'cancelled':
+            reason = db.execute('SELECT stop_reason FROM teaching_chats WHERE id=?', (id,)).fetchone()
+            if reason and reason['stop_reason'] == 'student_paused':
+                status = 'paused'
         db.execute('UPDATE teaching_chats SET answer=?,status=?,finished=?,error=? WHERE id=?', (answer, status, store.now(), error, id))
+        from .telemetry import event
+        row = db.execute('SELECT session,activity FROM teaching_chats WHERE id=?', (id,)).fetchone()
+        event(db, row['session'], 'chat_finished', row['activity'], id, {'status': status}, event_id=f'chat-finished:{id}')
+
+
+def save_first_response(id):
+    with store.connection() as db:
+        db.execute('UPDATE teaching_chats SET first_response_at=COALESCE(first_response_at,?) WHERE id=?', (store.now(), id))
 
 
 def public_error(exc):
@@ -162,12 +177,16 @@ def content_text(chunk):
 async def chat(body: ChatInput, request: Request, x_session_id: str = Header(default='')):
     session = session_id(x_session_id)
     context, history = await run_in_threadpool(learning_context, session, body)
-    model = make_model()
+    id = await run_in_threadpool(save_start, session, body, context)
+    try:
+        model = make_model()
+    except Exception as exc:
+        await run_in_threadpool(save_finish, id, '', 'error', public_error(exc))
+        raise
     messages = [SystemMessage(content=system_prompt(body.activity_id, context))]
     for pair in history:
         messages.extend([HumanMessage(content=pair['question']), AIMessage(content=pair['answer'])])
     messages.append(HumanMessage(content=body.question))
-    id = await run_in_threadpool(save_start, session, body, context)
 
     async def stream():
         answer, status, error = '', 'cancelled', None
@@ -192,12 +211,10 @@ async def chat(body: ChatInput, request: Request, x_session_id: str = Header(def
                                 return
                             delta = content_text(chunk)
                             if delta:
-                                delta = delta[:MAX_REPLY_CHARS - len(answer)]
+                                if not answer:
+                                    await run_in_threadpool(save_first_response, id)
                                 answer += delta
-                                if delta:
-                                    yield event('delta', text=delta)
-                                if len(answer) >= MAX_REPLY_CHARS:
-                                    break
+                                yield event('delta', text=delta)
                             task = asyncio.create_task(anext(tokens, None))
                     finally:
                         if not task.done():
@@ -207,7 +224,7 @@ async def chat(body: ChatInput, request: Request, x_session_id: str = Header(def
                 raise ValueError('empty_model_answer')
             status = 'completed'
             save_finish(id, answer, status)
-            yield event('done', chat_id=id, status=status, limited=len(answer) >= MAX_REPLY_CHARS)
+            yield event('done', chat_id=id, status=status, limited=False)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

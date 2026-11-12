@@ -3,7 +3,7 @@ import { ArrowRight, Position } from '@element-plus/icons-vue'
 import TeachingRobot from '../../projects/teaching-agent/TeachingRobot.vue'
 
 const projects = [
-  { id: 'teaching-agent', number: '01', title: '教学 Agent', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },
+  { id: 'teaching-agent', number: '01', title: '图书分类活动学习助手', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },
 ]
 </script>
 
@@ -12,15 +12,15 @@ const projects = [
     <header class="home-header">
       <div class="home-header-inner">
         <RouterLink to="/" class="home-brand" aria-label="Orbit 项目首页"><span class="brand-mark"><el-icon><Position/></el-icon></span><span>orbit</span><span class="home-brand-label">PBL 学习空间</span></RouterLink>
-        <nav class="home-nav" aria-label="顶部菜单"><RouterLink to="/" class="home-current" aria-current="page">项目首页</RouterLink><RouterLink to="/projects/teaching-agent">教学 Agent</RouterLink></nav>
+        <nav class="home-nav" aria-label="顶部菜单"><RouterLink to="/" class="home-current" aria-current="page">项目首页</RouterLink><RouterLink to="/projects/teaching-agent">学习助手</RouterLink></nav>
       </div>
     </header>
     <main class="home-content">
-      <section class="home-intro"><span class="home-eyebrow">从问题出发，在实践中学习</span><h1>选择你的学习项目</h1><p>定义问题，构建智能体，用证据发现答案。</p></section>
+      <section class="home-intro"><span class="home-eyebrow">从问题出发，在实践中学习</span><h1>选择你的学习项目</h1></section>
       <section class="home-project-grid" aria-label="学习项目">
         <RouterLink v-for="project in projects" :key="project.id" :to="'/projects/'+project.id" class="home-project-card" :class="project.theme">
           <div class="home-card-art" aria-hidden="true">
-            <span class="home-project-number">PROJECT {{ Number(project.number) }}</span><span class="home-category">{{project.tag}}</span>
+            <span class="home-category">{{project.tag}}</span>
             <svg v-if="project.theme==='astronomy'" viewBox="0 0 560 235" class="home-project-illustration">
               <defs><radialGradient id="home-moon-light" cx="32%" cy="24%"><stop offset="0" stop-color="#fff"/><stop offset=".68" stop-color="#e9e1fa"/><stop offset="1" stop-color="#b9a8de"/></radialGradient></defs>
               <ellipse cx="282" cy="143" rx="186" ry="51" fill="none" stroke="#d9cdef" stroke-width="1.2" transform="rotate(-17 282 143)"/>

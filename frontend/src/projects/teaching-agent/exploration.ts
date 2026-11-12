@@ -1,3 +1,4 @@
+import {submissionBody,submissionSaved} from './telemetry'
 export interface ExcelColumn {id:string;name:string;numeric_count:number}
 export interface ExcelRow {row:number;values:(string|number|boolean|null)[]}
 export interface Dataset {id:string;filename:string;version:string;sheet:string;sheet_count:number;columns:ExcelColumn[];row_count:number;default_features:string[];preview:ExcelRow[]}
@@ -11,9 +12,12 @@ export interface Analysis {
 }
 export interface ExplorationSubmission {id:string;result_id:string;created:string;payload:{student_result:{counts:number[];description:string};tool_result:{counts:number[];centers:number[][]};dataset_id:string;dataset_version:string;features:ExcelColumn[];teaching_context:Record<string,unknown>}}
 export async function explorationRequest<T>(session:string,path:string,body?:unknown,file?:File):Promise<T>{
+ const request=body&&path==='submissions'?submissionBody(session,'exploration',body):null
+ if(request)body=request.body
  let response:Response
  try{response=await fetch(`/api/projects/teaching-agent/activities/explore_2d/${path}`,{method:body||file?'POST':'GET',headers:{'X-Session-ID':session,'Content-Type':file?'application/octet-stream':'application/json',...(file?{'X-File-Name':encodeURIComponent(file.name)}:{})},body:file??(body?JSON.stringify(body):undefined)})}catch{throw new Error('连接不上计算服务，请检查后端是否已启动，再试一次。')}
  const data=await response.json().catch(()=>null)
  if(!response.ok)throw new Error(typeof data?.detail==='string'?data.detail:response.status===413?'文件太大，请使用5MB以内的.xlsx文件。':'这次操作没有完成，请检查数据和后端服务后重试。')
+ if(request)submissionSaved(request.key)
  return data
 }

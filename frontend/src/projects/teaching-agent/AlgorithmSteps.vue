@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import {computed,ref} from 'vue'
 import type {ActivityDraft} from './learningState'
-import {algorithmSteps,shuffledSteps,checkStepOrder} from './sorting'
-const props=defineProps<{draft:ActivityDraft;disabled?:boolean}>()
+import {algorithmSteps,shuffledSteps} from './sorting'
+const props=defineProps<{draft:ActivityDraft;disabled?:boolean;submittedCorrect?:boolean|null}>()
 const emit=defineEmits<{submit:[string[]]}>()
 if(props.draft.stepOrder.length!==4||!props.draft.stepOrder.every(id=>algorithmSteps.some(s=>s.id===id)))props.draft.stepOrder=shuffledSteps()
 const dragged=ref<number|null>(null),over=ref<number|null>(null)
-const submittedCorrect=ref<boolean|null>(null)
+const edited=ref(false)
+const submittedCorrect=computed(()=>edited.value?null:props.submittedCorrect??null)
 const steps=computed(()=>props.draft.stepOrder.map(id=>algorithmSteps.find(s=>s.id===id)!))
-function move(from:number,to:number){if(props.disabled||from===to||to<0||to>=4)return;const order=[...props.draft.stepOrder];order.splice(to,0,order.splice(from,1)[0]!);props.draft.stepOrder=order;submittedCorrect.value=null}
-function submit(){submittedCorrect.value=checkStepOrder(props.draft.stepOrder).correct;emit('submit',[...props.draft.stepOrder])}
+function move(from:number,to:number){if(props.disabled||from===to||to<0||to>=4)return;const order=[...props.draft.stepOrder];order.splice(to,0,order.splice(from,1)[0]!);props.draft.stepOrder=order;edited.value=true}
+function submit(){edited.value=false;emit('submit',[...props.draft.stepOrder])}
 function start(event:DragEvent,index:number){if(props.disabled)return;dragged.value=index;event.dataTransfer?.setData('text/plain',String(index));if(event.dataTransfer)event.dataTransfer.effectAllowed='move'}
 function drop(index:number){if(dragged.value!==null)move(dragged.value,index);dragged.value=null;over.value=null}
 </script>

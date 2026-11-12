@@ -19,6 +19,8 @@ OTHER = {'X-Session-ID': 'excel-student-session-002'}
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv('DATABASE_PATH', str(tmp_path/'excel.db'))
     with TestClient(app) as client:
+        for headers in [H,OTHER]:
+            assert client.post('/api/projects/teaching-agent/student',headers=headers,json={'class_name':'七年级1班','student_number':'001'}).status_code==200
         yield client
 
 

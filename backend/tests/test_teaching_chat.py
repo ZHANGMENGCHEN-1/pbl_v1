@@ -47,7 +47,10 @@ def client(tmp_path,monkeypatch):
     monkeypatch.setenv('LLM_API_KEY','unit-test-key')
     monkeypatch.setenv('LLM_BASE_URL',f'http://127.0.0.1:{server.server_port}/v1')
     monkeypatch.setenv('LLM_MODEL','test-teacher')
-    with TestClient(app) as client:yield client,requests
+    with TestClient(app) as client:
+        for session in [H['X-Session-ID'],'other-chat-student-0001']:
+            assert client.post(ROOT+'/student',headers={'X-Session-ID':session},json={'class_name':'七年级1班','student_number':'001'}).status_code==200
+        yield client,requests
     server.shutdown();server.server_close();worker.join(timeout=2)
 
 
@@ -57,6 +60,22 @@ def ask(client,activity='group_books',question='中心怎么算？',context=None
 
 def events(response):
     return [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith('data: ')]
+
+
+def test_student_identity_is_bound_to_session(client):
+    client,_=client
+    identity={'class_name':' 七年级1班 ', 'student_number':' 001 '}
+    response=client.post(ROOT+'/student',headers=H,json=identity)
+    assert response.status_code==200
+    assert response.json()=={'session_id':H['X-Session-ID'],'class_name':'七年级1班','student_number':'001'}
+    assert client.post(ROOT+'/student',headers=H,json=identity).status_code==200
+    assert client.post(ROOT+'/student',headers=H,json={**identity,'student_number':'002'}).status_code==409
+    assert client.post(ROOT+'/student',headers=H,json={**identity,'class_name':' '}).status_code==422
+    assert client.post(ROOT+'/student',json=identity).status_code==400
+    ask(client)
+    with store.connection() as db:
+        row=db.execute('SELECT s.class_name,s.student_number FROM teaching_chats c JOIN teaching_students s ON c.project=s.project AND c.session=s.session').fetchone()
+        assert row['class_name']=='七年级1班' and row['student_number']=='001'
 
 
 def test_actual_round_context_stream_and_history(client):
@@ -73,8 +92,8 @@ def test_actual_round_context_stream_and_history(client):
     assert requests[0]['model']=='test-teacher' and 'tools' not in requests[0]
     sent=requests[0]['messages']
     system=sent[0]['content']
-    assert '最多100字' in system and '中心更新' in system
-    assert chat.make_model().max_tokens==256
+    assert '尽量不超过100字' in system and '自然收尾' in system and '中心更新' in system
+    assert chat.make_model().max_tokens==512
     with store.connection() as db:
         row=db.execute('SELECT * FROM teaching_chats').fetchone()
         context=json.loads(row['context'])
@@ -121,7 +140,11 @@ def test_length_and_errors_no_fake_answers(client,monkeypatch):
     client,requests=client
     long=events(ask(client,question='测试长回复'))
     answer=''.join(e['data']['text'] for e in long if e['type']=='delta')
-    assert len(answer)==100 and long[-1]['data']['limited'] is True
+    assert answer=='测试长回复的完整句子。'*100
+    assert long[-1]['data']['limited'] is False
+    with store.connection() as db:
+        row=db.execute('SELECT answer,status FROM teaching_chats').fetchone()
+        assert row['answer']==answer and row['status']=='completed'
     for question in ['测试鉴权错误','测试空回复']:
         response=ask(client,question=question)
         assert events(response)[-1]['type']=='error'

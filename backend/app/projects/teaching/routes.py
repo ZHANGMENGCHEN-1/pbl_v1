@@ -24,6 +24,7 @@ def init():
         CREATE UNIQUE INDEX IF NOT EXISTS teaching_steps_next ON teaching_steps(project,session,previous_id) WHERE previous_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS teaching_submissions(id TEXT PRIMARY KEY, project TEXT, session TEXT, activity TEXT, result_id TEXT, payload TEXT, created TEXT);
         CREATE INDEX IF NOT EXISTS teaching_submissions_session ON teaching_submissions(project,session);
+        CREATE TABLE IF NOT EXISTS teaching_students(project TEXT, session TEXT, class_name TEXT NOT NULL, student_number TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(project,session));
         """)
 
 
@@ -39,11 +40,32 @@ class StepInput(BaseModel):
     previous_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
+class StudentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    class_name: str = Field(min_length=1, max_length=80)
+    student_number: str = Field(min_length=1, max_length=40)
+
+
+@router.post("/student")
+def register_student(body: StudentInput, x_session_id: str = Header(default="")):
+    session = session_id(x_session_id)
+    with store.connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        existing = db.execute("SELECT class_name,student_number FROM teaching_students WHERE project=? AND session=?", (PROJECT, session)).fetchone()
+        if existing and (existing['class_name'], existing['student_number']) != (body.class_name, body.student_number):
+            raise HTTPException(409, "当前会话已关联其他学生，请重新开始后填写。")
+        db.execute("INSERT OR IGNORE INTO teaching_students VALUES(?,?,?,?,?)", (PROJECT, session, body.class_name, body.student_number, store.now()))
+        from .telemetry import event
+        event(db, session, 'student_registered', event_id=f'registered:{session}')
+    return {"session_id": session, "class_name": body.class_name, "student_number": body.student_number}
+
+
 class SubmissionInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     result_id: str = Field(min_length=1, max_length=80)
     counts: list[StrictInt] = Field(min_length=2, max_length=2)
     centers: list[float] = Field(min_length=2, max_length=2)
+    request_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=80)
 
     @field_validator("centers", mode="before")
     @classmethod
@@ -97,7 +119,9 @@ def calculate(body: StepInput, x_session_id: str = Header(default="")):
                    "centers_before": centers, "centers_after": [c[0] for c in frame["centers_after"]], "groups": groups,
                    "converged": frame["converged"], "warnings": frame["warnings"], "tie_policy": "距离相同归入第1组", "empty_group_policy": "空组保留原中心"}
         result = {"id": str(uuid4()), "previous_id": body.previous_id, "created": store.now(), "books": BOOKS, **context, "teaching_context": context}
-        db.execute("INSERT INTO teaching_steps VALUES(?,?,?,?,?,?)", (result["id"], PROJECT, session, body.previous_id, json.dumps(result, ensure_ascii=False), result["created"]))
+        db.execute("INSERT INTO teaching_steps(id,project,session,previous_id,result,created) VALUES(?,?,?,?,?,?)", (result["id"], PROJECT, session, body.previous_id, json.dumps(result, ensure_ascii=False), result["created"]))
+        from .telemetry import event
+        event(db, session, 'calculation_completed', 'group_books', result['id'], {'round': result['round']})
     return result
 
 
@@ -113,6 +137,9 @@ def submit(body: SubmissionInput, x_session_id: str = Header(default="")):
             raise HTTPException(422, "请继续计算，等分组和中心稳定后再提交。")
         payload = {"kind": "learning_result", "student_result": {"counts": body.counts, "centers": body.centers}, "calculation_result": result,
                    "tool_result": {"counts": [g["count"] for g in result["groups"]], "centers": result["centers_after"]}, "teaching_context": result["teaching_context"]}
-        record = {"id": str(uuid4()), "result_id": body.result_id, "created": store.now(), "payload": payload}
-        db.execute("INSERT INTO teaching_submissions VALUES(?,?,?,?,?,?,?)", (record["id"], PROJECT, session, "group_books", body.result_id, json.dumps(payload, ensure_ascii=False), record["created"]))
+        payload['comparison'] = {'counts_match': body.counts == payload['tool_result']['counts'],
+                                 'centers_match': [math.isclose(value, expected, rel_tol=0, abs_tol=0.001) for value, expected in zip(body.centers, result['centers_after'])],
+                                 'center_absolute_tolerance': 0.001}
+        from .telemetry import save_submission
+        record = save_submission(db, session, 'group_books', body.result_id, payload, body.request_id)
     return record

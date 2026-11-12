@@ -17,7 +17,7 @@
 
 ## 输出与状态
 
-提示词要求通常50–80字、2–3个完整句子，最多一个具体追问；学生不会时直接解释。服务端硬限制100字符，达到上限即关闭上游流；输出token预算最多256（与字符上限不同）。缩短历史和输出预算可减少部分输入处理及生成时间，但首token等待也取决于模型服务和模型自身的推理设置。只转发文本内容，不转发独立的推理字段。
+提示词在生成时要求通常50–80字、尽量不超过100字（含标点）、2–3个完整句子，接近目标时自然收尾，最多一个具体追问；学生不会时直接解释。100字是软目标，服务端不再按字符截断或提前关闭上游流。输出token预算默认512，配置范围512–1200，为完整收尾留出余量；token是供应商安全上限，不等于字数限制，仍可能触顶。首token等待也取决于模型服务和模型自身的推理设置。只转发文本内容，不转发独立的推理字段。
 
 `POST /api/projects/teaching-agent/chat`，请求头`X-Session-ID`，JSON：
 
@@ -48,7 +48,7 @@
 
 后端`python -m pytest tests -q`。根目录`node scripts/teaching_chat_stream_smoke.mjs`验证字节边界、中文/emoji和异常SSE。
 
-浏览器：运行`python scripts/teaching_chat_fixture_server.py`，前端以`API_TARGET=http://127.0.0.1:8001`启动5174，再运行`python scripts/teaching_chat_browser_smoke.py`。此fixture只在本地模拟模型供应商，实际经过FastAPI和ChatOpenAI HTTP/SSE，绝不可部署。验证三活动上下文、真实计算证据、逐段显示、思考/暂停/错误、上游取消和100字符上限。
+浏览器：运行`python scripts/teaching_chat_fixture_server.py`，前端以`API_TARGET=http://127.0.0.1:8001`启动5174，再运行`python scripts/teaching_chat_browser_smoke.py`。此fixture只在本地模拟模型供应商，实际经过FastAPI和ChatOpenAI HTTP/SSE，绝不可部署。验证三活动上下文、真实计算证据、逐段显示、思考/暂停/错误、上游取消和超长回复完整保留。
 
 外部真实模型实测需要本地`backend/.env`配置有效密钥并重启后端。测试不会读取或调用付费模型；不能把本地模拟供应商的测试宣称为外部LLM实测。
 

@@ -14,6 +14,7 @@ import { useTeachingChat } from './useTeachingChat'
 import { canEnter } from './learningState'
 import {algorithmSteps} from './sorting'
 import type { ActivityId } from './activities'
+import {saveSorting,recordActivityEntry} from './telemetry'
 
 const {state,activity,current,count,complete,records,saveError,persist,enter:enterActivity,reset}=useTeachingLearning()
 const {messages,draft,busy,thinking,mood,canSend,send,stop,error:chatError,retry:retryChat}=useTeachingChat(state,persist,()=>operationOpen.value?'task':'dialogue')
@@ -24,6 +25,21 @@ function explorationSubmitted(saved:ExplorationSubmission){const result=state.va
 function calculated(result:Calculation){current.value.operation={status:result.converged?'completed':'pending',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};calculationHint.value=result.converged?'两组的书和中心都不再变化了。你可以看着计算过程，自己写下两组的数量和最后的中心。':`这一轮分好了！把这一组中每本书的借阅次数加起来，再除以这一组有几本书，就得到新的中心。`;boundary.value=messages.value.at(-1)?.id||0;persist()}
 function calculationSubmitted(saved:CalculationSubmission){recordCalculation(state.value,saved);persist();operationOpen.value=false;calculationHint.value='';boundary.value=messages.value.at(-1)?.id||0;window.scrollTo({top:0,behavior:'smooth'})}
 const entry=ref<'hello'|'story'|'learning'>('hello'),bubbleVisible=ref(false),operationOpen=ref(false)
+const className=ref(''),studentNumber=ref(''),identitySaving=ref(false),identityError=ref('')
+const sortingSaving=ref(false),sortingError=ref(''),sortingCorrect=ref<boolean|null>(null)
+async function identify(){
+  if(identitySaving.value)return
+  identityError.value=''
+  if(!className.value.trim()||!studentNumber.value.trim()){identityError.value='请填写班级和学号。';return}
+  identitySaving.value=true
+  try{
+    const response=await fetch('/api/projects/teaching-agent/student',{method:'POST',headers:{'Content-Type':'application/json','X-Session-ID':state.value.sessionId},body:JSON.stringify({class_name:className.value.trim(),student_number:studentNumber.value.trim()})})
+    const data=await response.json()
+    if(!response.ok)throw new Error(typeof data?.detail==='string'?data.detail:'保存失败，请重试。')
+    state.value.student={className:data.class_name,studentNumber:data.student_number}
+    persist();entry.value='story'
+  }catch(e){identityError.value=e instanceof Error?e.message:'连接失败，请重试。'}finally{identitySaving.value=false}
+}
 // With the task closed, return to the same conversation composition as the opening.
 const dialogueFocus=computed(()=>entry.value==='learning'&&!operationOpen.value)
 const recordsOpen=ref(false),historyOpen=ref(false),input=ref<HTMLTextAreaElement>()
@@ -45,11 +61,17 @@ function start(){entry.value='learning';operationOpen.value=true;boundary.value=
 function submit(text=draft.value){if(!text.trim()||busy.value||text.length>2000)return;send(text);nextTick(()=>input.value?.focus())}
 function enter(event:KeyboardEvent){if(event.shiftKey||event.isComposing||event.keyCode===229)return;event.preventDefault();submit()}
 function openTask(){boundary.value=messages.value.at(-1)?.id||0;operationOpen.value=true}
-function submitOrder(order:string[]){stop();boundary.value=messages.value.at(-1)?.id||0;recordStepOrder(state.value,order);persist()}
+async function submitOrder(order:string[]){
+  if(sortingSaving.value)return
+  stop();sortingSaving.value=true;sortingError.value='';sortingCorrect.value=null
+  try{const saved=await saveSorting(state.value.sessionId,order);boundary.value=messages.value.at(-1)?.id||0;recordStepOrder(state.value,order,saved);sortingCorrect.value=saved.payload.correct;persist()}
+  catch(e){sortingError.value=e instanceof Error?e.message:'排序保存失败，请重试。'}finally{sortingSaving.value=false}
+}
 function continueToThree(){if(enterActivity('explore_2d')){operationOpen.value=false;window.scrollTo({top:0,behavior:'smooth'})}}
 
 function review(id:ActivityId){if(busy.value)return;stop();if(enterActivity(id)){recordsOpen.value=false;entry.value='learning';operationOpen.value=false;boundary.value=messages.value.at(-1)?.id||0}}
 watch(()=>activity.value.id,()=>{boundary.value=messages.value.at(-1)?.id||0})
+watch(()=>[entry.value,state.value.activeActivityId,state.value.sessionId],()=>{if(entry.value==='learning'&&state.value.student)void recordActivityEntry(state.value.sessionId,state.value.activeActivityId)})
 async function restart(){
   try{await ElMessageBox.confirm('要重新开始这次体验吗？','重新开始',{confirmButtonText:'重新开始',cancelButtonText:'继续学习'})}catch{return}
   stop();reset();entry.value='hello';operationOpen.value=false;boundary.value=messages.value.at(-1)?.id||0
@@ -67,18 +89,24 @@ function menu(command:string){
   <div class="teaching-page minimal-teaching">
     <header class="minimal-header"><RouterLink to="/" class="minimal-back" aria-label="返回项目首页"><el-icon><ArrowLeft/></el-icon><span>返回</span></RouterLink><div class="minimal-menu"><span class="demo-mark">AI 对话</span><el-dropdown trigger="click" @command="menu"><button class="more-button" aria-label="更多" :disabled="busy"><el-icon><MoreFilled/></el-icon></button><template #dropdown><el-dropdown-menu><el-dropdown-item command="history">对话记录</el-dropdown-item><el-dropdown-item command="records">学习记录</el-dropdown-item><el-dropdown-item command="robot">小知转回正面</el-dropdown-item><el-dropdown-item command="restart">重新开始</el-dropdown-item><el-dropdown-item command="about" divided>功能说明</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></header>
     <main class="minimal-scene" :class="{'has-operation':operationOpen,'dialogue-focus':dialogueFocus,'wide-task':entry==='learning'&&operationOpen&&activity.id==='explore_2d'}">
-      <div class="robot-stage" :class="{'has-chat-reply':entry==='learning'&&operationOpen}"><div class="robot-figure"><section v-if="entry==='learning'&&operationOpen&&(activity.id==='group_books'||explorationHint||latestReply||thinking)" class="robot-chat-bubble" aria-label="小知的话" aria-live="polite"><p v-if="!latestReply&&!thinking&&(activity.id==='group_books'||explorationHint)" class="task-guidance">{{speech}}</p><p v-if="latestReply?.text" class="question-reply">{{latestReply.text}}</p><small v-if="latestReply?.paused" class="chat-state" role="status">已暂停回复</small><small v-else-if="latestReply?.error" class="chat-state">回复未完成</small><span v-else-if="thinking" class="chat-state" role="status">小知正在思考…</span></section><TeachingRobot ref="robot" :mood="mood" :show-controls="false"/></div><form v-if="entry==='learning'" class="minimal-composer" @submit.prevent="submit()"><label class="sr-only" for="teaching-input">和小知说说你的问题</label><textarea id="teaching-input" ref="input" v-model="draft" rows="1" maxlength="2000" placeholder="和小知说说你的想法……" @keydown.enter="enter"/><button v-if="busy" type="button" class="send-button stop-button" aria-label="暂停回复" @click="stop">■</button><button v-else class="send-button" type="submit" aria-label="发送" :disabled="!canSend"><el-icon><Promotion/></el-icon></button></form><p v-if="chatError" class="chat-error" role="alert">{{chatError}} <button :disabled="busy" @click="retryChat">重试</button></p></div>
+      <div class="robot-stage" :class="{'has-chat-reply':entry==='learning'&&operationOpen}"><div class="robot-figure"><section v-if="entry==='learning'&&operationOpen&&(activity.id==='group_books'||explorationHint||latestReply||thinking)" class="robot-chat-bubble" aria-label="小知的话" aria-live="polite"><span class="speaker-label">小知</span><p v-if="!latestReply&&!thinking&&(activity.id==='group_books'||explorationHint)" class="task-guidance">{{speech}}</p><p v-if="latestReply?.text" class="question-reply">{{latestReply.text}}</p><small v-if="latestReply?.paused" class="chat-state" role="status">已暂停回复</small><small v-else-if="latestReply?.error" class="chat-state">回复未完成</small><span v-else-if="thinking" class="chat-state" role="status">小知正在思考…</span></section><TeachingRobot ref="robot" :mood="mood" :show-controls="false"/></div><form v-if="entry==='learning'" class="minimal-composer" @submit.prevent="submit()"><label class="composer-label" for="teaching-input">和小知说说你的问题</label><textarea id="teaching-input" ref="input" v-model="draft" rows="1" maxlength="2000" placeholder="和小知说说你的想法……" @keydown.enter="enter"/><button v-if="busy" type="button" class="send-button stop-button" aria-label="暂停回复" @click="stop(true)">■</button><button v-else class="send-button" type="submit" aria-label="发送" :disabled="!canSend"><el-icon><Promotion/></el-icon></button></form><p v-if="chatError" class="chat-error" role="alert">{{chatError}} <button :disabled="busy" @click="retryChat">重试</button></p></div>
       <div class="minimal-conversation">
-        <Transition name="speech" appear><section v-if="bubbleVisible&&(entry!=='learning'||dialogueFocus)" class="xiaozhi-speech" aria-label="小知的话" aria-live="polite"><p>{{speech}}</p><p v-if="dialogueFocus&&latestReply?.text" class="dialogue-reply">{{latestReply.text}}</p><small v-if="dialogueFocus&&latestReply?.paused" class="chat-state" role="status">已暂停回复</small><small v-else-if="dialogueFocus&&latestReply?.error" class="chat-state">回复未完成</small><span v-else-if="dialogueFocus&&thinking" class="chat-state" role="status">小知正在思考…</span></section></Transition>
+        <Transition name="speech" appear><section v-if="bubbleVisible&&(entry!=='learning'||dialogueFocus)" class="xiaozhi-speech" aria-label="小知的话" aria-live="polite"><span class="speaker-label">小知</span><p>{{speech}}</p><p v-if="dialogueFocus&&latestReply?.text" class="dialogue-reply">{{latestReply.text}}</p><small v-if="dialogueFocus&&latestReply?.paused" class="chat-state" role="status">已暂停回复</small><small v-else-if="dialogueFocus&&latestReply?.error" class="chat-state">回复未完成</small><span v-else-if="dialogueFocus&&thinking" class="chat-state" role="status">小知正在思考…</span></section></Transition>
         <div v-if="bubbleVisible" class="speech-actions">
-          <button v-if="entry==='hello'" class="primary-response" @click="entry='story'">你好，小知</button>
-          <button v-else-if="entry==='story'" class="primary-response" @click="start">{{count?'继续学习':'我们试试'}}</button>
+          <form v-if="entry==='hello'" class="student-identity" @submit.prevent="identify">
+            <label for="student-class">班级<input id="student-class" v-model="className" maxlength="80" placeholder="例如：七年级1班" required :disabled="identitySaving"></label>
+            <label for="student-number">学号<input id="student-number" v-model="studentNumber" maxlength="40" placeholder="请输入学号" required :disabled="identitySaving"></label>
+            <p v-if="identityError" class="chat-error" role="alert">{{identityError}}</p>
+            <button class="primary-response" :disabled="identitySaving">{{identitySaving?'正在保存…':'确认并继续'}}</button>
+          </form>
+          <button v-else-if="entry==='story'" class="primary-response" @click="start">进入活动1</button>
           <button v-else-if="!operationOpen&&!complete" class="primary-response" :class="{'enter-activity-two':activity.id==='explain_algorithm'}" :disabled="busy" @click="openTask">{{activity.id==='explain_algorithm'?'进入活动2':operationLabel}}</button>
         </div>
         <template v-if="entry==='learning'">
-          <div v-if="operationOpen" class="minimal-operation"><CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @result="calculated" @submitted="calculationSubmitted" @restored="saved=>{recordCalculation(state,saved,false);persist()}"/><AlgorithmSteps v-else-if="activity.id==='explain_algorithm'" :draft="current.draft" :disabled="busy" @submit="submitOrder"/><ExcelExperiment v-else :session-id="state.sessionId" :draft="current.draft" @changed="explorationChanged" @result="explorationCalculated" @submitted="explorationSubmitted"/><div class="operation-actions"><button v-if="activity.id==='explain_algorithm'&&canEnter(state,'explore_2d')" class="primary-response enter-activity-two" :disabled="busy" @click="continueToThree">进入活动3 →</button></div></div>
+          <div v-if="operationOpen" class="minimal-operation"><CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @result="calculated" @submitted="calculationSubmitted" @restored="saved=>{recordCalculation(state,saved,false);persist()}"/><AlgorithmSteps v-else-if="activity.id==='explain_algorithm'" :draft="current.draft" :disabled="busy||sortingSaving" :submitted-correct="sortingCorrect" @submit="submitOrder"/><ExcelExperiment v-else :session-id="state.sessionId" :draft="current.draft" @changed="explorationChanged" @result="explorationCalculated" @submitted="explorationSubmitted"/><div class="operation-actions"><button v-if="activity.id==='explain_algorithm'&&canEnter(state,'explore_2d')" class="primary-response enter-activity-two" :disabled="busy||sortingSaving" @click="continueToThree">进入活动3 →</button></div></div>
 
           <p v-if="saveError" class="save-error" role="status">{{saveError}}</p>
+          <p v-if="sortingError" class="chat-error" role="alert">{{sortingError}}</p>
         </template>
       </div>
     </main>
@@ -88,6 +116,7 @@ function menu(command:string){
 </template>
 
 <style scoped>
+.student-identity{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;padding:20px;box-sizing:border-box;background:#fff;border:2px solid #b69ad9;border-radius:18px}.student-identity label{font-size:14px;font-weight:600;color:#67418b;min-width:0}.student-identity input{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;border:1px solid #b69ad9;border-radius:10px;font:inherit;color:#49345f;background:#fcfaff}.student-identity input:focus{outline:2px solid #8052b1;outline-offset:2px}.student-identity p{grid-column:1/-1;margin:0;font-size:13px;line-height:1.7}.identity-hint{color:#73528d}.student-identity button{grid-column:1/-1;justify-self:end}@media(max-width:420px){.student-identity{grid-template-columns:1fr}}
 .chat-state{display:block;color:#9b83ad;font-size:14px;line-height:1.8;margin-top:10px}.chat-error{font-size:14px;line-height:1.8;color:#aa6157;overflow-wrap:anywhere}.chat-error button{border:0;background:transparent;color:#8862b2;cursor:pointer;font-size:14px;padding:4px 6px}
 @media(min-width:1101px){.minimal-scene.wide-task{max-width:1480px;grid-template-columns:260px minmax(0,1fr);gap:32px;padding-left:32px;padding-right:32px}}
 .robot-chat-bubble .question-reply:first-child{margin-top:0;padding-top:0;border-top:0}
@@ -100,5 +129,22 @@ function menu(command:string){
 @media(max-width:650px){.minimal-scene{display:flex;flex-direction:column;gap:16px;justify-content:center;padding:18px 24px 60px;min-height:calc(100dvh - 80px)}.robot-stage{max-width:230px;margin:0 auto}.minimal-conversation{width:100%;max-width:500px}.xiaozhi-speech{padding:22px 24px;border-radius:20px}.xiaozhi-speech::before{left:45%;top:-12px;transform:rotate(135deg);width:20px;height:20px}.xiaozhi-speech p{font-size:18px;line-height:1.9}.speech-actions{margin-top:18px}.minimal-composer{margin-top:22px}.has-operation{justify-content:flex-start}.has-operation .robot-stage{max-width:350px}.has-operation .robot-figure{max-width:155px;margin:auto}.minimal-operation :deep(.activity-preview-card){padding:16px}.demo-mark{font-size:10px}}
 .robot-figure:has(.robot-chat-bubble){--robot-chat-reserve:200px;padding-top:var(--robot-chat-reserve)}
 .has-operation .robot-stage{box-sizing:border-box;padding-top:20px}.robot-chat-bubble{position:absolute;top:auto;bottom:calc(100% - var(--robot-chat-reserve) + 14px);margin:0}
-@media(prefers-reduced-motion:reduce){.speech-enter-active{transition:none}}
+.robot-chat-bubble,.xiaozhi-speech{background:#fff;border:2px solid #b69ad9;box-shadow:0 10px 30px #69449624}
+.robot-chat-bubble::after{border-color:#b69ad9;border-width:2px}
+.xiaozhi-speech::before{border-color:#b69ad9;border-width:2px}
+.speaker-label{display:block;width:fit-content;margin-bottom:10px;padding:3px 10px;border-radius:8px;background:#eee4fa;color:#67418b;font-size:13px;font-weight:700;line-height:1.6}
+.robot-chat-bubble p,.robot-chat-bubble .question-reply,.xiaozhi-speech p,.xiaozhi-speech .dialogue-reply{color:#49345f;overflow-wrap:anywhere}
+.robot-chat-bubble .question-reply{margin-top:0;padding-top:0;border-top:0}
+.minimal-composer{flex-wrap:wrap;gap:8px 10px;padding:14px 16px;background:#fff;border:2px solid #a78bc9;border-radius:18px;box-shadow:0 6px 20px #69449616;transition:border-color .18s,box-shadow .18s}
+.minimal-composer:focus-within{border-color:#8052b1;box-shadow:0 0 0 4px #9364c921,0 6px 20px #69449616}
+.composer-label{flex:0 0 100%;color:#67418b;font-size:13px;font-weight:700;line-height:1.6;cursor:text}
+.minimal-composer textarea{color:#49345f;min-height:40px}
+.minimal-composer textarea::placeholder{color:#82718f}
+.send-button{width:40px;height:40px;background:#8052b1}
+.send-button:disabled{color:#8c799e;background:#e9dff3}
+.history-message{border:1px solid #cab5df;background:#fff;margin-right:24px}
+.history-message.student{margin-right:0;margin-left:24px;background:#eee4fa;border-color:#b69ad9}
+.history-message small{color:#73528d;font-weight:600}
+.history-message p{color:#49345f}
+@media(prefers-reduced-motion:reduce){.speech-enter-active,.minimal-composer{transition:none}}
 </style>

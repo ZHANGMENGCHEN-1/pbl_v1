@@ -118,8 +118,10 @@ def save_upload(raw, filename, session):
     data = parse_excel(raw)
     data.update(id=str(uuid4()), filename=filename, version=hashlib.sha256(raw).hexdigest(), created=store.now())
     with store.connection() as db:
-        db.execute('INSERT INTO teaching_datasets VALUES(?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO teaching_datasets(id,project,session,filename,version,raw_file,data,created) VALUES(?,?,?,?,?,?,?,?)',
                    (data['id'], PROJECT, session, filename, data['version'], raw, json.dumps(data, ensure_ascii=False), data['created']))
+        from .telemetry import event
+        event(db, session, 'dataset_uploaded', 'explore_2d', data['id'], {'version': data['version'], 'row_count': data['row_count']})
     return summary(data)
 
 
@@ -218,8 +220,10 @@ def analyze(body: AnalyzeInput, x_session_id: str = Header(default='')):
               'columns': data['columns'], 'points': [{**r, 'group': frame['labels'][i]} for i, r in enumerate(records)],
               'teaching_context': context}
     with store.connection() as db:
-        db.execute('INSERT INTO teaching_analyses VALUES(?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO teaching_analyses(id,project,session,dataset_id,version,result,created) VALUES(?,?,?,?,?,?,?)',
                    (result['id'], PROJECT, session, data['id'], data['version'], json.dumps(result, ensure_ascii=False), result['created']))
+        from .telemetry import event
+        event(db, session, 'analysis_completed', 'explore_2d', result['id'], {'dataset_id': data['id'], 'features': body.features})
     return result
 
 
@@ -234,6 +238,7 @@ class ResultInput(BaseModel):
     result_id: str = Field(min_length=1, max_length=80)
     counts: list[StrictInt] = Field(min_length=2, max_length=2)
     description: str = Field(min_length=1, max_length=500)
+    request_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=80)
 
 
 @router.post('/submissions')
@@ -243,6 +248,7 @@ def submit(body: ResultInput, x_session_id: str = Header(default='')):
     if not description:
         raise HTTPException(422, '请用自己的话写一句两组有什么特点。')
     with store.connection() as db:
+        db.execute('BEGIN IMMEDIATE')
         result = owned_analysis(db, session, body.result_id)
         if any(n < 0 for n in body.counts) or sum(body.counts) != result['sample_count']:
             raise HTTPException(422, f'两组数量需要是非负整数，合计{result["sample_count"]}条（实际参与计算的记录）。')
@@ -250,7 +256,7 @@ def submit(body: ResultInput, x_session_id: str = Header(default='')):
                    'tool_result': {'counts': [g['count'] for g in result['groups']], 'centers': [g['center'] for g in result['groups']]},
                    'dataset_id': result['dataset_id'], 'dataset_version': result['dataset_version'], 'features': result['features'],
                    'teaching_context': result['teaching_context']}
-        saved = {'id': str(uuid4()), 'result_id': result['id'], 'created': store.now(), 'payload': payload}
-        db.execute('INSERT INTO teaching_submissions VALUES(?,?,?,?,?,?,?)',
-                   (saved['id'], PROJECT, session, 'explore_2d', result['id'], json.dumps(payload, ensure_ascii=False), saved['created']))
+        payload['comparison'] = {'counts_match': body.counts == payload['tool_result']['counts'], 'description_evaluation': 'not_automatically_graded'}
+        from .telemetry import save_submission
+        saved = save_submission(db, session, 'explore_2d', result['id'], payload, body.request_id)
     return saved

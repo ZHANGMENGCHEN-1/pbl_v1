@@ -9,6 +9,8 @@ HEADERS = {'X-Session-ID': 'teaching-test-session-123'}
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv('DATABASE_PATH', str(tmp_path / 'teaching.db'))
     with TestClient(app) as client:
+        assert client.post('/api/projects/teaching-agent/student',headers=HEADERS,json={'class_name':'七年级1班','student_number':'001'}).status_code==200
+        client.post('/api/projects/teaching-agent/student',headers={'X-Session-ID':'other-student-session-123'},json={'class_name':'七年级1班','student_number':'002'})
         yield client
 
 def post(client, path, data, headers=HEADERS):

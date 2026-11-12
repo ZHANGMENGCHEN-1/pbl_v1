@@ -22,9 +22,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def do_GET(self):
         with store.connection() as db:
-            chats=[{**dict(r),'context':json.loads(r['context'])} for r in db.execute('SELECT id,question,answer,status,context FROM teaching_chats ORDER BY created,id')]
+            chats=[{**dict(r),'context':json.loads(r['context'])} for r in db.execute('SELECT * FROM teaching_chats ORDER BY created,id')]
+            submissions=[dict(r) for r in db.execute('SELECT * FROM teaching_submissions ORDER BY created,id')]
+            rounds=[dict(r) for r in db.execute('SELECT * FROM teaching_round_answers ORDER BY created,id')]
+            events=[dict(r) for r in db.execute('SELECT * FROM teaching_events ORDER BY created,id')]
         self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers()
-        self.wfile.write(json.dumps({'requests':received,'chats':chats},ensure_ascii=False).encode())
+        self.wfile.write(json.dumps({'requests':received,'chats':chats,'submissions':submissions,'round_answers':rounds,'events':events},ensure_ascii=False).encode())
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         received.append(body)

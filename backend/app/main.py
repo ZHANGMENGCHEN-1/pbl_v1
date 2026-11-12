@@ -14,6 +14,10 @@ from .projects.registry import router as projects_router
 from .projects.teaching.routes import router as teaching_router, init as init_teaching
 from .projects.teaching.excel import router as teaching_excel_router, init as init_teaching_excel
 from .projects.teaching.chat import router as teaching_chat_router, init as init_teaching_chat
+from .projects.teaching import telemetry
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 
 @asynccontextmanager
@@ -23,6 +27,7 @@ async def lifespan(app):
     init_teaching()
     init_teaching_excel()
     init_teaching_chat()
+    telemetry.init()
     yield
 
 
@@ -34,6 +39,29 @@ app.include_router(astronomy_router)
 app.include_router(teaching_router)
 app.include_router(teaching_excel_router)
 app.include_router(teaching_chat_router)
+app.include_router(telemetry.router)
+
+
+@app.middleware('http')
+async def teaching_identity(request: Request, call_next):
+    path = request.url.path
+    tracked = request.method == 'POST' and path.startswith('/api/projects/teaching-agent/')
+    session = request.headers.get('x-session-id', '')
+    if tracked and path != '/api/projects/teaching-agent/student':
+        try:
+            from .projects.teaching.routes import session_id
+            session_id(session)
+            await run_in_threadpool(telemetry.student, session)
+        except HTTPException as exc:
+            return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
+    response = await call_next(request)
+    if tracked and response.status_code >= 400:
+        def record_failure():
+            with store.connection() as db:
+                activity = next((a for a in ('group_books', 'explain_algorithm', 'explore_2d') if a in path), None)
+                telemetry.event(db, session, 'operation_failed', activity, data={'path': path, 'http_status': response.status_code})
+        await run_in_threadpool(record_failure)
+    return response
 
 
 @app.get("/api/health")
