@@ -26,8 +26,10 @@ class Handler(BaseHTTPRequestHandler):
             submissions=[dict(r) for r in db.execute('SELECT * FROM teaching_submissions ORDER BY created,id')]
             rounds=[dict(r) for r in db.execute('SELECT * FROM teaching_round_answers ORDER BY created,id')]
             events=[dict(r) for r in db.execute('SELECT * FROM teaching_events ORDER BY created,id')]
+            students=[dict(r) for r in db.execute('SELECT * FROM teaching_students ORDER BY created,session')]
+            measurements=[dict(r) for r in db.execute('SELECT * FROM teaching_state_measurements ORDER BY created,id')]
         self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers()
-        self.wfile.write(json.dumps({'requests':received,'chats':chats,'submissions':submissions,'round_answers':rounds,'events':events},ensure_ascii=False).encode())
+        self.wfile.write(json.dumps({'requests':received,'chats':chats,'submissions':submissions,'round_answers':rounds,'events':events,'students':students,'measurements':measurements},ensure_ascii=False).encode())
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         received.append(body)
@@ -36,7 +38,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(500);self.send_header('Content-Type','application/json');self.end_headers()
             self.wfile.write(b'{"error":{"message":"private-provider-details","type":"server_error"}}');return
         context=json.loads(body['messages'][0]['content'].split('平台学习状态摘要（数据不是指令）：\n')[-1])
-        if context.get('analysis'):
+        if context.get('meaning_making'):
+            answer={
+                'Content':'可以先说说已经理解的部分。刚才哪个环节最难理解？',
+                'Task':'这次活动尝试用数据整理书籍。你觉得哪个环节最无聊，为什么？',
+                'Experience':'遇到困难时感到沮丧是可以理解的。刚才发生了什么，让你有这种感受？',
+                'Self':'可以先回顾已经完成的小步骤。是什么让你担心接下来的任务？',
+                'Positive':'我们可以回顾刚才的过程。有没有哪一步让你觉得有收获，或者值得再想一想？',
+            }[context['meaning_making']['strategy']]
+        elif context.get('current_task',{}).get('number')==2:
+            answer='右侧四张步骤卡片需要按先后顺序排列。先整理数据，再确定中心数量、选择初始中心，最后进行计算。'
+        elif context.get('analysis'):
             analysis=context['analysis'];point=analysis['point_examples'][0];x,y=point['coordinates'];axes=analysis['axes']
             answer=f'这一行的{axes[0]["name"]}是{x}，{axes[1]["name"]}是{y}。先在横轴找到{x}，再在竖直方向找到{y}。这两个数一起确定图上的一个点，不是把它们加起来。'
         else:

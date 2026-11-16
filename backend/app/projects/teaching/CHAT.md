@@ -1,5 +1,9 @@
 # 小知真实流式对话
 
+每次提问带上当前activity_id、screen（task/reflection/introduction）和真实控件草稿；后端组装current_task（活动编号、标题、目标、可见控件，活动2包含四张卡片文字）。模型以当前任务为先，previous_calculation仅用于必要的前序知识回顾。历史限定同一活动最近最多三轮；C班测量交流再限定同一measurement_id，完整历史仍保留在数据库。前端切换活动时取消旧回复、隐藏旧内容并清除旧问题重试状态。
+
+C班的意义建构交流也直接流式转发正文，只调用一次模型，取消整段缓存与超长重写。100字通过提示词约束，不做字符截断。智谱/Z.AI官方端点的GLM-5.3系列使用最低推理强度low（官方不允许关闭思考）；GLM-5.2等明确支持关闭的型号传thinking.type=disabled。独立推理字段不转发给学生。
+
 学生每次提问仅调用一次`LLM_MODEL`，复用`LLM_API_KEY/LLM_BASE_URL/LLM_MODEL/LLM_TIMEOUT_SECONDS/LLM_MAX_OUTPUT_TOKENS`。不另选模型、不自动降级到预设回复、不调用额外的摘要模型。现有开场、任务引导及排序反馈仍为平台预设文字。
 
 ## 教学提示词与实际证据

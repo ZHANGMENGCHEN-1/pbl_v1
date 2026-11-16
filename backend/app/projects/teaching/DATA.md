@@ -4,6 +4,7 @@
 
 沿用 `DATABASE_PATH` 指定的 SQLite 数据库；默认从 backend 启动时为 `backend/data/workspace.db`。
 学生登记入口为 `POST /api/projects/teaching-agent/student`，使用 `X-Session-ID` 关联班级和学号。学号按 TEXT 保存，保留前导零。
+`teaching_students.source_route` 区分 `teaching-agent`（原版）、`meaning-making`（完整副本）和 `learning-activities`（纯活动版）。旧记录默认归原版；同一会话不得改绑其他入口。三个入口共用后端接口，以各自独立的会话隔离数据；按 project/session 关联此表可区分交付与埋点来源。
 班级与学号是学生自报标识，不是登录认证。同一学生多次进入页面，会有不同 session；当前刷新创建新会话的规则保持不变。
 
 所有教学 POST（登记本身除外）要求会话先完成登记。身份从后端登记表获取，客户端不能在提交中覆盖。
@@ -23,6 +24,7 @@
 | teaching_datasets | 一次成功上传 | 文件、数据版本和解析结果 |
 | teaching_analyses | 一次真实二维分析 | 数据集及版本、所选列和分组结果 |
 | teaching_events | 一次关键过程事件 | 身份、activity、type、reference_id、data、created |
+| teaching_state_measurements | A/B/C班一次有效交付后的四题状态测量 | 身份、source_route、activity、submission_id、ratings、created、request_id |
 
 时间均为后端 UTC ISO 8601。展示时转换为北京时间。聊天 `created` 表示后端接受有效提问并创建记录的时间，`first_response_at` 是首段正文到达时间；无正文时为 NULL，`finished` 为终态保存时间。不记录推理内容。
 聊天状态：`running`、`completed`、`error`、`cancelled`、`paused`、`interrupted`。
@@ -56,10 +58,20 @@
 | chat_finished | 后端保存问答终态，关联 chat ID |
 | chat_pause_requested | 显式暂停，关联 chat ID |
 | operation_failed | 已登记会话的教学 POST 返回 HTTP 4xx/5xx；保存路径和状态码，不存供应商敏感错误 |
+| state_measurement_submitted | 三班四题1–5分自评保存成功，关联 measurement ID 与 submission_id |
+| reflection_opening_requested | C班测量保存后平台请求模型开场，关联 chat ID；不计作学生主动求助 |
 
 前端只能上报 activity_entered，不能伪造成功/完成事件。页面停留时间不等于有效学习时间。
 事件是历史事实，例如 cancelled 后才收到暂停通知，chat_finished 事件可能仍描述先前状态；当前最终状态以 teaching_chats 为准。
 浏览器本地校验未发请求的错误、未送达服务器的断网请求不在 operation_failed 范围。
+
+## A/B/C班状态测量与C班模型策略
+
+`POST /api/projects/teaching-agent/state-measurements` 接受登记 source_route 为 learning-activities（A班）、teaching-agent（B班）、meaning-making（C班）的会话。请求含本会话的 submission_id、request_id 以及四个原始整数评分 difficulty、boredom、frustration、self_efficacy，各为1–5；不计算总分，不反转存储第4题。活动2仅排序正确的交付可以提交结束测量。
+
+一份活动交付只保存一份测量；同内容重试返回原记录，改变已保存评分或复用请求编号到另一交付返回409，不覆盖历史。新交付可以关联新测量。数据独立保存在 teaching_state_measurements，不能访问其他会话的交付。
+
+C班聚焦交流传入 context.measurement_id，由后端读取评分与交付并选择Content/Task/Experience/Self/Positive；不接受前端自报策略或评分。开场purpose=reflection_opening、question_source=platform；追问为question/student。聊天context保留关联ID、策略和版本、实际交付摘要、generation_attempts=1和delivery=streaming。按最新要求，C班收到正文立即流式转发，不等待整段校验、不额外重写、不按字符截断；100字保留为提示词生成目标。A班没有模型，B班继续普通教学对话，不使用评分策略。
 
 ## 查询示例
 

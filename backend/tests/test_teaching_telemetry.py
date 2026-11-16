@@ -112,6 +112,19 @@ def test_client_events_are_deduplicated_and_cannot_forge_success(client):
         assert db.execute('SELECT COUNT(*) FROM teaching_events WHERE type="activity_entered"').fetchone()[0] == 1
 
 
+def test_learning_entry_sources_are_saved_and_immutable(client):
+    for index, source in enumerate(['teaching-agent', 'meaning-making', 'learning-activities']):
+        headers = {'X-Session-ID': f'learning-source-session-{index}'}
+        data = {'class_name': '七年级1班', 'student_number': '001', 'source_route': source}
+        assert client.post(ROOT + '/student', headers=headers, json=data).status_code == 200
+        assert client.post(ROOT + '/student', headers=headers, json=data).status_code == 200
+        alternate = 'learning-activities' if source != 'learning-activities' else 'teaching-agent'
+        assert client.post(ROOT + '/student', headers=headers, json={**data, 'source_route': alternate}).status_code == 409
+    with store.connection() as db:
+        assert {r['source_route'] for r in db.execute('SELECT source_route FROM teaching_students')} == {'teaching-agent', 'meaning-making', 'learning-activities'}
+    assert client.post(ROOT + '/student', headers=H, json={'class_name': '七年级1班', 'student_number': '001', 'source_route': 'unknown'}).status_code == 422
+
+
 def test_migration_preserves_unidentified_history(tmp_path, monkeypatch):
     from app.projects.teaching import routes, excel
     monkeypatch.setenv('DATABASE_PATH', str(tmp_path / 'legacy.db'))
@@ -125,3 +138,16 @@ def test_migration_preserves_unidentified_history(tmp_path, monkeypatch):
     with store.connection() as db:
         row = db.execute('SELECT * FROM teaching_submissions WHERE id="legacy"').fetchone()
         assert row['payload'] == '{}' and row['student_number'] is None and row['class_name'] is None
+
+
+def test_old_student_table_gets_original_entry_default(tmp_path, monkeypatch):
+    from app.projects.teaching import routes
+    monkeypatch.setenv('DATABASE_PATH', str(tmp_path / 'old-students.db'))
+    with store.connection() as db:
+        db.execute('CREATE TABLE teaching_students(project TEXT,session TEXT,class_name TEXT,student_number TEXT,created TEXT,PRIMARY KEY(project,session))')
+        db.execute('INSERT INTO teaching_students VALUES(?,?,?,?,?)', ('teaching-agent', H['X-Session-ID'], '七年级1班', '001', store.now()))
+    routes.init()
+    routes.init()
+    with store.connection() as db:
+        row = db.execute('SELECT * FROM teaching_students').fetchone()
+        assert row['source_route'] == 'teaching-agent' and row['student_number'] == '001'

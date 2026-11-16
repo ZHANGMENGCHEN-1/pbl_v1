@@ -2,6 +2,7 @@ import json
 import math
 import re
 from uuid import uuid4
+from typing import Literal
 
 import numpy as np
 from fastapi import APIRouter, Header, HTTPException
@@ -26,6 +27,9 @@ def init():
         CREATE INDEX IF NOT EXISTS teaching_submissions_session ON teaching_submissions(project,session);
         CREATE TABLE IF NOT EXISTS teaching_students(project TEXT, session TEXT, class_name TEXT NOT NULL, student_number TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(project,session));
         """)
+        columns = {row['name'] for row in db.execute('PRAGMA table_info(teaching_students)')}
+        if 'source_route' not in columns:
+            db.execute("ALTER TABLE teaching_students ADD COLUMN source_route TEXT NOT NULL DEFAULT 'teaching-agent'")
 
 
 def session_id(value):
@@ -44,6 +48,7 @@ class StudentInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     class_name: str = Field(min_length=1, max_length=80)
     student_number: str = Field(min_length=1, max_length=40)
+    source_route: Literal['teaching-agent', 'teaching-agent-copy', 'meaning-making', 'learning-activities'] = 'teaching-agent'
 
 
 @router.post("/student")
@@ -51,10 +56,12 @@ def register_student(body: StudentInput, x_session_id: str = Header(default=""))
     session = session_id(x_session_id)
     with store.connection() as db:
         db.execute("BEGIN IMMEDIATE")
-        existing = db.execute("SELECT class_name,student_number FROM teaching_students WHERE project=? AND session=?", (PROJECT, session)).fetchone()
+        existing = db.execute("SELECT class_name,student_number,source_route FROM teaching_students WHERE project=? AND session=?", (PROJECT, session)).fetchone()
         if existing and (existing['class_name'], existing['student_number']) != (body.class_name, body.student_number):
             raise HTTPException(409, "当前会话已关联其他学生，请重新开始后填写。")
-        db.execute("INSERT OR IGNORE INTO teaching_students VALUES(?,?,?,?,?)", (PROJECT, session, body.class_name, body.student_number, store.now()))
+        if existing and existing['source_route'] != body.source_route:
+            raise HTTPException(409, '当前会话属于其他学习入口，请重新开始后填写。')
+        db.execute("INSERT OR IGNORE INTO teaching_students(project,session,class_name,student_number,created,source_route) VALUES(?,?,?,?,?,?)", (PROJECT, session, body.class_name, body.student_number, store.now(), body.source_route))
         from .telemetry import event
         event(db, session, 'student_registered', event_id=f'registered:{session}')
     return {"session_id": session, "class_name": body.class_name, "student_number": body.student_number}

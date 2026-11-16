@@ -7,6 +7,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from playwright.async_api import async_playwright,expect
+from teaching_measurement_helpers import complete_survey
 
 
 async def main():
@@ -60,22 +61,25 @@ async def main():
         await card.get_by_role('button',name='填写结果',exact=True).click()
         for i,value in enumerate(['3','5.667','2','17']):await card.locator('form input').nth(i).fill(value)
         await card.get_by_role('button',name='提交结果，进入活动2').click()
+        await complete_survey(page,1)
+        await page.get_by_role('button',name='继续前往活动2',exact=True).click()
         await expect(page.locator('.xiaozhi-speech')).to_contain_text('用自己的话')
         await ask('我还不太会总结步骤。')
         await expect(page.get_by_role('button',name='发送',exact=True)).to_be_visible()
         await expect(page.locator('.xiaozhi-speech .dialogue-reply')).to_be_visible()
         assert await page.locator('.algorithm-task').count()==0  # LLM cannot open or advance tasks.
         await page.get_by_role('button',name='进入活动2',exact=True).click()
-        assert await page.locator('.robot-chat-bubble').count()==0
+        await expect(page.locator('.robot-chat-bubble')).to_contain_text('四张步骤卡片')
         task=page.get_by_role('region',name='算法步骤排序任务')
         for i,id in enumerate(['data','count','centers','calculate']):
             order=await task.locator('li').evaluate_all('(items)=>items.map(x=>x.dataset.stepId)')
             if order[i]!=id:await task.locator(f'li[data-step-id="{id}"]').drag_to(task.locator('li').nth(i))
         await task.get_by_role('button',name='提交排序结果').click()
-        await page.get_by_role('button',name='进入活动3 →').click()
+        await complete_survey(page,2)
+        await page.get_by_role('button',name='继续前往活动3',exact=True).click()
         await page.get_by_role('button',name='准备一张表格',exact=True).click()
         excel=page.get_by_role('region',name='二维聚类任务')
-        assert await page.locator('.robot-chat-bubble').count()==0
+        await expect(page.locator('.robot-chat-bubble')).to_contain_text('上传Excel')
         book=Workbook()
         for row in [['书名','借阅次数','借阅时长'],['甲',2,5],['乙',4,7],['丙',20,30],['丁',22,32]]:book.active.append(row)
         raw=BytesIO();book.save(raw)
@@ -90,7 +94,8 @@ async def main():
         for i in range(2):await excel.locator('form input').nth(i).fill('2')
         await excel.locator('form textarea').fill('一组借阅次数和时长较少，另一组较多。')
         await excel.get_by_role('button',name='提交结果',exact=True).click()
-        await expect(excel.locator('.success-message')).to_contain_text('提交成功')
+        await complete_survey(page,3)
+        await expect(page.locator('.xiaozhi-speech')).to_contain_text('学习感受已经记录')
         audit=await (await page.request.get('http://127.0.0.1:8898/audit')).json()
         current=next(r for r in audit['chats'] if r['question']=='表格的一行怎么变成图里的一个点？')
         context=current['context']['analysis']

@@ -35,6 +35,8 @@ def init():
         CREATE INDEX IF NOT EXISTS teaching_events_student ON teaching_events(class_name,student_number,created);
         CREATE INDEX IF NOT EXISTS teaching_events_session ON teaching_events(project,session,created);
         CREATE TABLE IF NOT EXISTS teaching_round_answers(id TEXT PRIMARY KEY,project TEXT,session TEXT,result_id TEXT,payload TEXT,created TEXT,class_name TEXT,student_number TEXT,request_id TEXT,attempt_no INTEGER);
+        CREATE TABLE IF NOT EXISTS teaching_state_measurements(id TEXT PRIMARY KEY,project TEXT NOT NULL,session TEXT NOT NULL,class_name TEXT NOT NULL,student_number TEXT NOT NULL,source_route TEXT NOT NULL,activity TEXT NOT NULL,submission_id TEXT NOT NULL,ratings TEXT NOT NULL,created TEXT NOT NULL,request_id TEXT NOT NULL,UNIQUE(project,session,submission_id),UNIQUE(project,session,request_id));
+        CREATE INDEX IF NOT EXISTS teaching_measurements_student ON teaching_state_measurements(class_name,student_number,created);
         ''')
         for table in ('teaching_submissions', 'teaching_chats', 'teaching_steps', 'teaching_datasets', 'teaching_analyses'):
             columns = {r['name'] for r in db.execute(f'PRAGMA table_info({table})')}
@@ -159,3 +161,44 @@ def pause_chat(id: str, x_session_id: str = Header(default='')):
         db.execute("UPDATE teaching_chats SET stop_reason='student_paused',status=CASE WHEN status='cancelled' THEN 'paused' ELSE status END WHERE id=?", (id,))
         event(db, session, 'chat_pause_requested', row['activity'], id, event_id=f'chat-pause:{id}')
     return {'saved': True}
+
+
+class StateRatings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    difficulty: StrictInt = Field(ge=1, le=5)
+    boredom: StrictInt = Field(ge=1, le=5)
+    frustration: StrictInt = Field(ge=1, le=5)
+    self_efficacy: StrictInt = Field(ge=1, le=5)
+
+
+class StateMeasurementInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    submission_id: str = Field(min_length=1, max_length=80)
+    ratings: StateRatings
+    request_id: str = Field(min_length=1, max_length=80)
+
+
+@router.post('/state-measurements')
+def save_state_measurement(body: StateMeasurementInput, x_session_id: str = Header(default='')):
+    session = session_id(x_session_id)
+    with store.connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        identity = db.execute('SELECT class_name,student_number,source_route FROM teaching_students WHERE project=? AND session=?', (PROJECT, session)).fetchone()
+        if not identity or identity['source_route'] not in ('meaning-making', 'teaching-agent', 'learning-activities'):
+            raise HTTPException(403, '当前入口不支持此状态测量。')
+        submission = db.execute('SELECT activity,payload FROM teaching_submissions WHERE id=? AND project=? AND session=?', (body.submission_id, PROJECT, session)).fetchone()
+        if not submission:
+            raise HTTPException(404, '找不到这次活动交付。')
+        if submission['activity'] == 'explain_algorithm' and not json.loads(submission['payload']).get('correct'):
+            raise HTTPException(409, '请先完成正确的排序，再填写活动结束测量。')
+        ratings = body.ratings.model_dump()
+        existing = db.execute('SELECT * FROM teaching_state_measurements WHERE project=? AND session=? AND (submission_id=? OR request_id=?)', (PROJECT, session, body.submission_id, body.request_id)).fetchone()
+        if existing:
+            if existing['submission_id'] != body.submission_id or json.loads(existing['ratings']) != ratings:
+                raise HTTPException(409, '本次测量已保存，请勿覆盖已提交的评分。')
+            return {'id': existing['id'], 'created': existing['created'], 'activity_id': existing['activity'], 'submission_id': existing['submission_id'], 'ratings': ratings}
+        saved = {'id': str(uuid4()), 'created': store.now(), 'activity_id': submission['activity'], 'submission_id': body.submission_id, 'ratings': ratings}
+        db.execute('INSERT INTO teaching_state_measurements(id,project,session,class_name,student_number,source_route,activity,submission_id,ratings,created,request_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                   (saved['id'], PROJECT, session, identity['class_name'], identity['student_number'], identity['source_route'], submission['activity'], body.submission_id, json.dumps(ratings), saved['created'], body.request_id))
+        event(db, session, 'state_measurement_submitted', submission['activity'], saved['id'], {'submission_id': body.submission_id})
+    return saved

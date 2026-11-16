@@ -3,7 +3,7 @@ import { appendMessage,type TeachingSession } from './learningState'
 import {readChatStream} from './chatStream'
 
 /** One real model request per question; state transitions remain in platform code. */
-export function useTeachingChat(state:Ref<TeachingSession>,persist:()=>void,phase:()=> 'dialogue'|'task'=()=> 'task'){
+export function useTeachingChat(state:Ref<TeachingSession>,persist:()=>void,phase:()=> 'dialogue'|'task'=()=> 'task',screen:()=> 'task'|'reflection'|'introduction'=()=>phase()==='task'?'task':'introduction'){
   const messages=computed(()=>state.value.messages)
   const draft=computed({get:()=>state.value.activities[state.value.activeActivityId].draft.question,set:(value:string)=>{state.value.activities[state.value.activeActivityId].draft.question=value}})
   const busy=ref(false),thinking=ref(false),error=ref('')
@@ -13,7 +13,7 @@ export function useTeachingChat(state:Ref<TeachingSession>,persist:()=>void,phas
   async function send(text=draft.value){
     const input=text.trim(),id=state.value.activeActivityId,session=state.value.sessionId,current=state.value.activities[id]
     if(!input||input.length>2000||busy.value)return
-    const context={phase:phase(),step_id:id==='group_books'?current.operation.result?.id??null:null,
+    const context={phase:phase(),screen:screen(),step_id:id==='group_books'?current.operation.result?.id??null:null,
       analysis_id:id==='explore_2d'?current.operation.result?.id??null:null,
       dataset_id:current.draft.datasetId,features:current.draft.features.filter(Boolean),
       initial_centers:current.draft.centers,step_order:id==='explain_algorithm'?current.draft.stepOrder:[]}
@@ -51,7 +51,7 @@ export function useTeachingChat(state:Ref<TeachingSession>,persist:()=>void,phas
   }
   function retry(){if(lastQuestion&&!busy.value)void send(lastQuestion)}
   // Cancel outdated answers when a new activity/file/calculation replaces their context.
-  watch(()=>{const s=state.value,a=s.activities[s.activeActivityId];return [s.sessionId,s.activeActivityId,a.operation.result?.id,a.draft.datasetId,a.draft.features.join('|'),a.draft.stepOrder.join('|')].join(':')},()=>{stop();error.value=''},{flush:'sync'})
+  watch(()=>{const s=state.value,a=s.activities[s.activeActivityId];return [s.sessionId,s.activeActivityId,a.operation.result?.id,a.draft.datasetId,a.draft.features.join('|'),a.draft.stepOrder.join('|')].join(':')},()=>{stop();error.value='';lastQuestion=''},{flush:'sync'})
   onBeforeUnmount(()=>stop())
   return {messages,draft,busy,thinking,mood,canSend,send,stop,error,retry}
 }

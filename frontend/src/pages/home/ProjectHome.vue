@@ -3,7 +3,9 @@ import { ArrowRight, Position } from '@element-plus/icons-vue'
 import TeachingRobot from '../../projects/teaching-agent/TeachingRobot.vue'
 
 const projects = [
-  { id: 'teaching-agent', number: '01', title: '图书分类活动学习助手', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },
+  { id: 'teaching-agent', number: '01', title: 'B班', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },
+  { id: 'meaning-making', number: '02', title: 'C班', theme: 'teaching', tag: '对话与陪伴', description: '与现有学习助手相同的完整学习体验，和小知一起完成三个活动。', topics: ['分组计算', '步骤排序', '二维探索'] },
+  { id: 'learning-activities', number: '03', title: 'A班', theme: 'library', tag: '自主实践', description: '填写班级和学号，从五本书的分组开始，依次完成三个学习活动。', topics: ['分组计算', '步骤排序', '二维探索'] },
 ]
 </script>
 
@@ -65,24 +67,25 @@ const projects = [
 .home-eyebrow{font-size:14px;color:#80679f;letter-spacing:1px}
 .home-intro h1{font-size:34px;font-weight:700;line-height:1.5;color:#30394e;margin:12px 0}
 .home-intro p{font-size:16px;line-height:1.8;color:#657085}
-.home-project-grid{display:grid;grid-template-columns:minmax(0,720px);justify-content:center;gap:24px}
-.home-project-card{display:block;overflow:hidden;border:1px solid #e3e5ef;border-radius:16px;background:#fff;color:inherit;text-decoration:none;box-shadow:0 5px 20px #39314b04;transition:transform .2s,box-shadow .2s,border-color .2s}
+.home-project-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));justify-content:center;gap:24px}
+@media(max-width:1050px){.home-project-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.home-project-card{display:flex;flex-direction:column;overflow:hidden;border:1px solid #e3e5ef;border-radius:16px;background:#fff;color:inherit;text-decoration:none;box-shadow:0 5px 20px #39314b04;transition:transform .2s,box-shadow .2s,border-color .2s}
 .home-project-card:hover{transform:translateY(-4px);box-shadow:0 12px 32px #53406b10;border-color:#c7b6e3}
 .home-project-card:focus-visible{outline:3px solid #9f86ce;outline-offset:4px}
-.home-card-art{position:relative;height:255px;background:#f2eef9;border-bottom:1px solid #ece6f3}
+.home-card-art{position:relative;flex-shrink:0;height:255px;background:#f2eef9;border-bottom:1px solid #ece6f3}
 .library .home-card-art{background:#eef5f2;border-bottom-color:#e2ebe7}
 .home-project-number{position:absolute;left:28px;top:22px;color:#80679f;font-size:13px;font-weight:700;letter-spacing:1.5px}
 .library .home-project-number{color:#568c7e}
 .home-category{position:absolute;right:26px;top:20px;border:1px solid #ddd3ed;border-radius:5px;padding:4px 9px;font-size:13px;color:#8c77a9;background:#ffffff70}
 .library .home-category{color:#638d80;border-color:#d1e3da}
 .home-project-illustration{width:100%;height:100%;padding-top:15px}
-.home-card-content{padding:28px 28px 22px}
+.home-card-content{display:flex;flex:1;flex-direction:column;padding:28px 28px 22px}
 .home-card-content h2{font-size:23px;font-weight:700;color:#354056;line-height:1.5}
 .home-card-content>p{font-size:16px;line-height:1.85;color:#657085;margin:12px 0 22px;min-height:60px}
-.home-topics{display:flex;gap:9px;flex-wrap:wrap}
+.home-topics{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:26px}
 .home-topics span{font-size:13px;padding:5px 9px;border-radius:5px;background:#f6f5fa;color:#82738e}
 .library .home-topics span{background:#f2f7f4;color:#688a7d}
-.home-card-action{display:flex;align-items:center;justify-content:space-between;margin-top:26px;padding-top:20px;border-top:1px solid #eceef4;font-size:16px;font-weight:650;color:#7857ac}
+.home-card-action{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:20px;border-top:1px solid #eceef4;font-size:16px;font-weight:650;color:#7857ac}
 .home-card-action>.el-icon{width:30px;height:30px;border-radius:50%;background:#f3eefb;font-size:17px;transition:transform .2s}
 .home-project-card:hover .home-card-action>.el-icon{transform:translateX(3px)}
 .library .home-card-action{color:#4e8978}

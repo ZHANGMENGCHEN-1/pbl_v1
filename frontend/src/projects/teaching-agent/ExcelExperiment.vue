@@ -6,12 +6,12 @@ import type {ActivityDraft} from './learningState'
 const props=defineProps<{sessionId:string;draft:ActivityDraft}>()
 const emit=defineEmits<{result:[Analysis];submitted:[ExplorationSubmission];changed:[]}>()
 const dataset=ref<Dataset|null>(null),preview=ref<DataPreview|null>(null),result=ref<Analysis|null>(null)
-const busy=ref(false),error=ref(''),status=ref(''),fileInput=ref<HTMLInputElement>()
+const busy=ref(false),error=ref(''),submitError=ref(''),status=ref(''),fileInput=ref<HTMLInputElement>()
 const currentView=ref<'data'|'result'>('data')
 props.draft.exploration??={counts:[null,null],description:''}
 const answers=computed(()=>props.draft.exploration!)
 const previewColumns=computed(()=>props.draft.features.flatMap(id=>{const index=dataset.value?.columns.findIndex(c=>c.id===id)??-1;const column=dataset.value?.columns[index];return column?[{...column,index}]:[]}))
-function clearResult(){result.value=null;currentView.value='data';status.value='';props.draft.exploration={counts:[null,null],description:''};emit('changed')}
+function clearResult(){submitError.value='';result.value=null;currentView.value='data';status.value='';props.draft.exploration={counts:[null,null],description:''};emit('changed')}
 async function checkSelection(){preview.value=null;if(!dataset.value||props.draft.features.length!==2||new Set(props.draft.features).size!==2||!props.draft.features.every(Boolean))return;preview.value=await explorationRequest<DataPreview>(props.sessionId,'preview',{dataset_id:dataset.value.id,features:props.draft.features})}
 async function upload(event:Event){
  const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file)return
@@ -26,10 +26,11 @@ const ready=computed(()=>!!preview.value&&preview.value.sample_count>=2&&props.d
 async function run(){if(!dataset.value||busy.value)return;clearResult();busy.value=true;error.value='';try{result.value=await explorationRequest<Analysis>(props.sessionId,'analyses',{dataset_id:dataset.value.id,features:props.draft.features});emit('result',result.value);currentView.value='result'}catch(e){error.value=e instanceof Error?e.message:'计算失败，请检查数据后重试。'}finally{busy.value=false}}
 async function submit(){
  if(!result.value||busy.value)return
+ submitError.value='';status.value=''
  const a=answers.value
- if(!a.counts.every(n=>typeof n==='number'&&Number.isInteger(n)&&n>=0)||Number(a.counts[0])+Number(a.counts[1])!==result.value.sample_count){error.value=`请填写两组数量，合计${result.value.sample_count}条。`;return}
- if(!a.description.trim()){error.value='请自己写一句两组有什么特点。';return}
- busy.value=true;error.value='';try{const saved=await explorationRequest<ExplorationSubmission>(props.sessionId,'submissions',{result_id:result.value.id,counts:a.counts,description:a.description});emit('submitted',saved);status.value='提交成功！'}catch(e){error.value=e instanceof Error?e.message:'提交失败，请重试。'}finally{busy.value=false}
+ if(!a.counts.every(n=>typeof n==='number'&&Number.isInteger(n)&&n>=0)||Number(a.counts[0])+Number(a.counts[1])!==result.value.sample_count){submitError.value=`请填写两组数量，合计${result.value.sample_count}条。`;return}
+ if(!a.description.trim()){submitError.value='请自己写一句两组有什么特点。';return}
+ busy.value=true;submitError.value='';try{const saved=await explorationRequest<ExplorationSubmission>(props.sessionId,'submissions',{result_id:result.value.id,counts:a.counts,description:a.description});emit('submitted',saved);status.value='提交成功！'}catch(e){submitError.value=e instanceof Error?e.message:'提交失败，请重试。'}finally{busy.value=false}
 }
 </script>
 <template>
@@ -52,7 +53,7 @@ async function submit(){
   <p v-if="error" class="error-message" role="alert">{{error}}</p>
   <div v-if="result" v-show="currentView==='result'" id="excel-result-panel" role="tabpanel" aria-labelledby="excel-result-tab" class="results-and-submission">
    <section class="analysis-result" aria-label="实际聚类结果"><h3>看看分组结果</h3><p>{{result.sample_count}}条记录分成两组，{{result.converged?'中心已稳定。':'中心尚未稳定。'}}</p><p v-for="warning in result.warnings" :key="warning" class="data-notice">{{warning}}</p><ScatterPlot :result="result"/><div class="reading-guide"><h4>试着说一说</h4><p>先看横轴和纵轴的名称。一个点越靠右，它的“{{result.features[0]!.name}}”就越大；越靠上，它的“{{result.features[1]!.name}}”就越大。</p><p>两种颜色的点各集中在哪里？比一比，两组在这两个数值上有什么不同？</p></div></section>
-   <form class="student-submission" aria-label="提交二维分组结果" @submit.prevent="submit"><h3>写下你的发现</h3><p>看着左边的结果，自己填写。</p><label v-for="(_,i) in [0,1]" :key="i">第{{i+1}}组有几条？<input v-model.number="answers.counts[i]" type="number" min="0" :max="result.sample_count" required :disabled="busy" @input="status=''"/></label><label>用一句话说说两组有什么特点<textarea v-model="answers.description" rows="5" maxlength="500" required placeholder="看看两组在横轴和纵轴上的位置，用自己的话说一说。" :disabled="busy" @input="status=''"/></label><button :disabled="busy">提交结果</button><p v-if="status" class="success-message" role="status">{{status}}</p></form>
+   <form novalidate class="student-submission" aria-label="提交二维分组结果" @submit.prevent="submit"><h3>写下你的发现</h3><p>看着左边的结果，自己填写。</p><label v-for="(_,i) in [0,1]" :key="i">第{{i+1}}组有几条？<input v-model.number="answers.counts[i]" type="number" min="0" :max="result.sample_count" required :disabled="busy" @input="status='';submitError=''"/></label><label>用一句话说说两组有什么特点<textarea v-model="answers.description" rows="5" maxlength="500" required placeholder="看看两组在横轴和纵轴上的位置，用自己的话说一说。" :disabled="busy" @input="status='';submitError=''"/></label><button :disabled="busy">提交结果</button><p v-if="submitError" class="error-message submission-error" role="alert">{{submitError}}</p><p v-if="status" class="success-message" role="status">{{status}}</p></form>
   </div>
  </section>
 </template>
