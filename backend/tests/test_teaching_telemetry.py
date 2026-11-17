@@ -55,11 +55,19 @@ def test_round_answers_owned_and_preserved(client):
     wrong = {'result_id': step['id'], 'groups': {str(i): 1 for i in range(1, 6)}, 'request_id': 'round-1'}
     one = client.post(path, headers=H, json=wrong)
     assert one.status_code == 200
+    assert one.json()['correct'] is False
+    assert client.post(path, headers=H, json=wrong).json()['correct'] is False
     assert client.post(path, headers=H, json=wrong).json()['id'] == one.json()['id']
     assert client.post(path, headers=OTHER, json=wrong).status_code == 404
     assert client.post(path, headers=H, json={**wrong, 'groups': {'1': 1}}).status_code == 422
     right = {**wrong, 'groups': {b['id']: b['group'] + 1 for b in step['records']}, 'request_id': 'round-2'}
-    assert client.post(path, headers=H, json=right).json()['attempt_no'] == 2
+    saved=client.post(path, headers=H, json=right).json()
+    assert saved['attempt_no'] == 2 and saved['correct'] is True
+    assert client.post(path, headers=H, json=right).json()['correct'] is True
+    restored=client.get(ROOT+'/activities/group_books/state',headers=H).json()['round_answers']
+    assert [answer['correct'] for answer in restored]==[False,True]
+    assert restored[-1]['groups']==right['groups']
+    assert client.get(ROOT+'/activities/group_books/state',headers=OTHER).json()['round_answers']==[]
     with store.connection() as db:
         rows = db.execute('SELECT * FROM teaching_round_answers ORDER BY attempt_no').fetchall()
         assert len(rows) == 2 and rows[0]['student_number'] == '001'

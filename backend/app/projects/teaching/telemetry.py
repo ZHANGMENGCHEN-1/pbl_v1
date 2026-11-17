@@ -102,7 +102,7 @@ def round_answers(body: RoundInput, x_session_id: str = Header(default='')):
         if previous:
             if previous['result_id'] != body.result_id or json.loads(previous['payload'])['groups'] != body.groups:
                 raise HTTPException(409, '提交编号已用于其他答案。')
-            return {'id': previous['id'], 'created': previous['created'], 'attempt_no': previous['attempt_no']}
+            return {'id': previous['id'], 'created': previous['created'], 'attempt_no': previous['attempt_no'], 'correct': json.loads(previous['payload'])['correct']}
         identity = student(session)
         attempt = db.execute('SELECT COUNT(*) FROM teaching_round_answers WHERE project=? AND session=? AND result_id=?', (PROJECT, session, body.result_id)).fetchone()[0] + 1
         saved = {'id': str(uuid4()), 'created': store.now(), 'attempt_no': attempt}
@@ -110,7 +110,7 @@ def round_answers(body: RoundInput, x_session_id: str = Header(default='')):
         payload['correct'] = payload['groups'] == payload['expected_groups']
         db.execute('INSERT INTO teaching_round_answers VALUES(?,?,?,?,?,?,?,?,?,?)', (saved['id'], PROJECT, session, body.result_id, json.dumps(payload, ensure_ascii=False), saved['created'], identity['class_name'], identity['student_number'], body.request_id, attempt))
         event(db, session, 'round_answer_saved', 'group_books', saved['id'], {'attempt_no': attempt, 'correct': payload['correct']})
-    return saved
+    return {**saved, 'correct': payload['correct']}
 
 
 class SortingInput(BaseModel):

@@ -95,7 +95,8 @@ def state(x_session_id: str = Header(default="")):
     with store.connection() as db:
         steps = [json.loads(row[0]) for row in db.execute("SELECT result FROM teaching_steps WHERE project=? AND session=? ORDER BY created,id", (PROJECT, session))]
         submissions = [{**dict(row), "payload": json.loads(row["payload"])} for row in db.execute("SELECT id,result_id,payload,created FROM teaching_submissions WHERE project=? AND session=? AND activity='group_books' ORDER BY created,id", (PROJECT, session))]
-    return {"books": BOOKS, "steps": steps, "submissions": submissions}
+        round_answers = [{"result_id": row["result_id"], **json.loads(row["payload"])} for row in db.execute("SELECT result_id,payload FROM teaching_round_answers WHERE project=? AND session=? ORDER BY created,attempt_no", (PROJECT, session))]
+    return {"books": BOOKS, "steps": steps, "submissions": submissions, "round_answers": round_answers}
 
 
 @router.post("/activities/group_books/steps")
