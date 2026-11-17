@@ -9,7 +9,7 @@ const questions=[
   {key:'value_importance',text:'对我来说，学好这节课的内容很重要。'},
   {key:'interest',text:'我对这节课的学习内容很感兴趣。'},
   {key:'knowledge_importance',text:'对我来说，弄懂这节课的知识很重要。'},
-  {key:'performance_efficacy',text:'我相信自己能在这节课上取得好成绩。'},
+  {key:'performance_efficacy',text:'我相信我能在这节课上有良好表现。'},
   {key:'difficult_knowledge_efficacy',text:'我相信自己能够理解这节课中最难的知识。'},
   {key:'overall_efficacy',text:'考虑到这节课的难度、老师的指导和自己的能力，我相信自己能够学好这节课的内容。'},
 ]
