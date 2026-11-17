@@ -14,7 +14,7 @@ const projects = [
     <header class="home-header">
       <div class="home-header-inner">
         <RouterLink to="/" class="home-brand" aria-label="Orbit 项目首页"><span class="brand-mark"><el-icon><Position/></el-icon></span><span>orbit</span><span class="home-brand-label">PBL 学习空间</span></RouterLink>
-        <nav class="home-nav" aria-label="顶部菜单"><RouterLink to="/" class="home-current" aria-current="page">项目首页</RouterLink><RouterLink to="/projects/teaching-agent">学习助手</RouterLink></nav>
+        <nav class="home-nav" aria-label="顶部菜单"><RouterLink to="/" class="home-current" aria-current="page">项目首页</RouterLink></nav>
       </div>
     </header>
     <main class="home-content">

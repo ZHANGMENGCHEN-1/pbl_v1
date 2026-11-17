@@ -2,17 +2,17 @@ export const activityIds=['group_books','explain_algorithm','explore_2d'] as con
 export type ActivityId=typeof activityIds[number]
 
 export const activities=[
-  {id:'group_books' as ActivityId,number:1,title:'和小知一起分组',goal:'选两个开始的中心，看看五本书怎样分成两组。',
+  {id:'group_books' as ActivityId,number:1,title:'和小知一起完成数据分组',goal:'选两个开始的中心，看看五本书怎样分成两组。',
     introduction:'这五本书借出去的次数不一样。\n先选两个开始的中心，看看怎样把它们分成两组。',
     pending:'逐轮计算还没有接入，现在不会生成距离、分组或中心答案。',
     guidance:'这一段先体验流程。你可以调整两个开始的中心，或者把想问的问题写下来。真正的一轮计算将在下一段接入。',
     suggestions:['中心点是做什么的？','这一步我想先试试'],topic:'分组计算'},
-  {id:'explain_algorithm' as ActivityId,number:2,title:'整理分组的方法',goal:'把刚才的经历整理成四个大步骤。',
+  {id:'explain_algorithm' as ActivityId,number:2,title:'总结计算流程，验证程序',goal:'把刚才的经历整理成四个大步骤。',
     introduction:'现在是活动2：整理分组的方法。\n我们要把四个步骤按先后顺序排好。你可以先用自己的话说说，再点击“进入活动2”开始排序。',
     pending:'拖动排序和程序验证还没有接入。这里先展示将要使用的四张步骤卡，不代表你的排序答案。',
     guidance:'这里展示的是四张步骤卡的预览。后面可以拖动排序，并展开看看重复计算里有哪些动作。现在可以先记录自己的想法。',
     suggestions:['这一步要整理什么？','哪些计算需要重复？'],topic:'算法步骤'},
-  {id:'explore_2d' as ActivityId,number:3,title:'看看二维分组结果',goal:'上传表格，运行分组，再一起解释散点图。',
+  {id:'explore_2d' as ActivityId,number:3,title:'了解并体验二维K-均值算法',goal:'上传表格，运行分组，再一起解释散点图。',
     introduction:'借阅次数和借阅时长，能不能一起比较？\n先来看看活动3："部分图书馆书籍数据.xlsx"这个表格。',
     pending:'',
     guidance:'上传Excel，确认要比较的两列，运行分组。看一看横轴、纵轴分别是什么，再比较两种颜色的点集中在哪里。',

@@ -6,6 +6,7 @@ from typing import Literal
 from uuid import uuid4
 from urllib.parse import urlparse
 
+from anyio import CancelScope
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -84,8 +85,16 @@ def learning_context(session, body):
                 raise HTTPException(404, '找不到当前活动的状态测量。')
             if measurement['source_route'] != 'meaning-making' or current.phase != 'dialogue':
                 raise HTTPException(403, '当前测量不用于意义建构对话。')
-            context['meaning_making'] = {'measurement_id': measurement['id'], 'submission_id': measurement['submission_id'], 'ratings': json.loads(measurement['ratings']), 'strategy_version': meaning_making.PROMPT_VERSION, 'generation_attempts': 1, 'delivery': 'streaming'}
+            context['meaning_making'] = {'measurement_id': measurement['id'], 'submission_id': measurement['submission_id'], 'questionnaire_version': measurement['questionnaire_version'], 'ratings': json.loads(measurement['ratings']), 'strategy_version': meaning_making.PROMPT_VERSION, 'generation_attempts': 1, 'delivery': 'streaming'}
             context['meaning_making']['strategy'] = meaning_making.select_strategy(context['meaning_making']['ratings'])
+            completed = db.execute("""SELECT COUNT(*) FROM teaching_chats
+                WHERE project=? AND session=? AND activity=? AND status='completed'
+                AND json_extract(context, '$.meaning_making.measurement_id')=?
+                AND COALESCE(json_extract(context, '$.current_task.screen'), 'reflection')=?""",
+                (PROJECT, session, body.activity_id, current.measurement_id, context['current_task']['screen'])).fetchone()[0]
+            turn = completed + 1
+            context['meaning_making']['dialogue_turn'] = turn
+            context['meaning_making']['response_mode'] = 'guidance' if turn % 3 == 0 else 'inquiry'
             context['question_source'] = 'platform' if body.purpose == 'reflection_opening' else 'student'
         if body.activity_id == 'group_books':
             context['books'] = BOOKS
@@ -271,7 +280,7 @@ async def chat(body: ChatInput, request: Request, x_session_id: str = Header(def
             if not answer.strip():
                 raise ValueError('empty_model_answer')
             status = 'completed'
-            save_finish(id, answer, status)
+            await run_in_threadpool(save_finish, id, answer, status)
             yield event('done', chat_id=id, status=status, limited=False)
         except asyncio.CancelledError:
             raise
@@ -281,5 +290,7 @@ async def chat(body: ChatInput, request: Request, x_session_id: str = Header(def
         finally:
             # One final write per reply (including partial output), never one write per token.
             if status != 'completed':
-                save_finish(id, answer, status, error)
+                # Finish recording partial output even when the stream is cancelled.
+                with CancelScope(shield=True):
+                    await run_in_threadpool(save_finish, id, answer, status, error)
     return StreamingResponse(stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})

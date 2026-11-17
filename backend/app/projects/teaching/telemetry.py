@@ -1,13 +1,15 @@
 """Identity snapshots and append-only teaching evidence. Times are server UTC."""
 import json
+from datetime import timezone
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt
 
 from ...shared import store
 from .routes import PROJECT, BOOKS, get_step, session_id
+from . import measurements
 
 router = APIRouter(prefix='/api/projects/teaching-agent', tags=['teaching'])
 
@@ -38,6 +40,7 @@ def init():
         CREATE TABLE IF NOT EXISTS teaching_state_measurements(id TEXT PRIMARY KEY,project TEXT NOT NULL,session TEXT NOT NULL,class_name TEXT NOT NULL,student_number TEXT NOT NULL,source_route TEXT NOT NULL,activity TEXT NOT NULL,submission_id TEXT NOT NULL,ratings TEXT NOT NULL,created TEXT NOT NULL,request_id TEXT NOT NULL,UNIQUE(project,session,submission_id),UNIQUE(project,session,request_id));
         CREATE INDEX IF NOT EXISTS teaching_measurements_student ON teaching_state_measurements(class_name,student_number,created);
         ''')
+        measurements.init(db)
         for table in ('teaching_submissions', 'teaching_chats', 'teaching_steps', 'teaching_datasets', 'teaching_analyses'):
             columns = {r['name'] for r in db.execute(f'PRAGMA table_info({table})')}
             extra = {'class_name': 'TEXT', 'student_number': 'TEXT'}
@@ -176,6 +179,10 @@ class StateMeasurementInput(BaseModel):
     submission_id: str = Field(min_length=1, max_length=80)
     ratings: StateRatings
     request_id: str = Field(min_length=1, max_length=80)
+    started_at: AwareDatetime | None = None
+    response_duration_ms: StrictInt | None = Field(default=None, ge=0)
+    response_mode: Literal['slider-5point-v1'] | None = None
+    questionnaire_version: Literal['learning-state-v1', 'learning-state-v2', 'learning-state-v3'] = 'learning-state-v1'
 
 
 @router.post('/state-measurements')
@@ -194,11 +201,18 @@ def save_state_measurement(body: StateMeasurementInput, x_session_id: str = Head
         ratings = body.ratings.model_dump()
         existing = db.execute('SELECT * FROM teaching_state_measurements WHERE project=? AND session=? AND (submission_id=? OR request_id=?)', (PROJECT, session, body.submission_id, body.request_id)).fetchone()
         if existing:
-            if existing['submission_id'] != body.submission_id or json.loads(existing['ratings']) != ratings:
+            if existing['submission_id'] != body.submission_id or json.loads(existing['ratings']) != ratings or (existing['questionnaire_version'] not in ('legacy-unspecified', body.questionnaire_version)):
                 raise HTTPException(409, '本次测量已保存，请勿覆盖已提交的评分。')
-            return {'id': existing['id'], 'created': existing['created'], 'activity_id': existing['activity'], 'submission_id': existing['submission_id'], 'ratings': ratings}
-        saved = {'id': str(uuid4()), 'created': store.now(), 'activity_id': submission['activity'], 'submission_id': body.submission_id, 'ratings': ratings}
-        db.execute('INSERT INTO teaching_state_measurements(id,project,session,class_name,student_number,source_route,activity,submission_id,ratings,created,request_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                   (saved['id'], PROJECT, session, identity['class_name'], identity['student_number'], identity['source_route'], submission['activity'], body.submission_id, json.dumps(ratings), saved['created'], body.request_id))
-        event(db, session, 'state_measurement_submitted', submission['activity'], saved['id'], {'submission_id': body.submission_id})
-    return saved
+            return measurements.response(existing)
+        identity_record = {'project': PROJECT, 'session': session, 'activity': submission['activity'], **dict(identity)}
+        numbers = measurements.next_numbers(db, identity_record)
+        id = str(uuid4())
+        db.execute('''INSERT INTO teaching_state_measurements(id,project,session,class_name,student_number,source_route,activity,submission_id,ratings,created,request_id,
+                      student_survey_no,session_survey_no,activity_survey_no,activity_number,survey_phase,questionnaire_version,response_mode,started_at,response_duration_ms)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                   (id, PROJECT, session, identity['class_name'], identity['student_number'], identity['source_route'], submission['activity'], body.submission_id, json.dumps(ratings), store.now(), body.request_id,
+                    numbers['student_survey_no'], numbers['session_survey_no'], numbers['activity_survey_no'], measurements.ACTIVITY_NUMBERS[submission['activity']], 'post_activity', body.questionnaire_version,
+                    body.response_mode or 'legacy-unspecified', body.started_at.astimezone(timezone.utc).isoformat() if body.started_at else None, body.response_duration_ms))
+        event(db, session, 'state_measurement_submitted', submission['activity'], id, {'submission_id': body.submission_id, **numbers})
+        saved = db.execute('SELECT * FROM teaching_state_measurements WHERE id=?', (id,)).fetchone()
+    return measurements.response(saved)

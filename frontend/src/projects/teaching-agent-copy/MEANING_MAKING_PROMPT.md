@@ -1,18 +1,18 @@
 # C班：意义建构策略提示词（已接入）
 
-C班在状态测量保存成功后自动生成第一轮“回应＋追问”，之后的聚焦交流继续携带本次测量。策略选择和运行时提示词位于 `backend/app/projects/teaching/meaning_making.py`，版本 `meaning-making-v1`。A班无模型交互；B班使用原有普通教学对话，不应用C班策略。
+C班在状态测量保存成功后自动生成第一轮“回应＋追问”，之后的聚焦交流继续携带本次测量。策略选择和运行时提示词位于 `backend/app/projects/teaching/meaning_making.py`，当前版本 `meaning-making-v4`，以下system prompt代码块为早期示意，运行时以Python文件为准。A班无模型交互；B班使用原有普通教学对话，不应用C班策略。
 
 ## 测量
 
-每题独立选择 1–5：1非常不同意、2不同意、3既不同意也不反对、4同意、5非常同意。分别保存 difficulty、boredom、frustration、self_efficacy 原始分数；第4题正向计分，不在存储时反转。不是总分量表，不据此诊断学生。
+每题独立选择1–5，保存difficulty、boredom、frustration、self_efficacy原始分数，第4题不反转存储。当前问卷v3统一使用“非常不同意、不太同意、有点同意、比较同意、非常同意”，第4题为“对于完成接下来的学习任务，我很有信心。”v1/v2旧记录保留原版本。不是总分量表，不据此诊断学生。
 
 每次有效的活动最终交付关联一份测量；活动2错误排序仍留在任务中修改，不触发结束测量。再次有效交付有新的 submission_id，可再次测量。活动1保存本轮分组不是活动最终交付。
 
 ## 已实现的策略选择
 
 - difficulty ≥4：Content；boredom ≥4：Task；frustration ≥4：Experience；self_efficacy ≤2：Self。
-- 若多项触发，比较需求强度 difficulty、boredom、frustration、6-self_efficacy，先处理最高项。
-- 并列优先 Experience → Self → Content → Task。这是本项目采用的产品规则，不代表量表效度结论。
+- v4采用固定优先级 Experience → Task → Self → Content：达到阈值的沮丧、无聊优先于能力信念与知识理解，不再跨维度比较分数大小。这是本项目采用的产品规则，不代表量表效度结论。
+- Experience先温和回应可能的沮丧，再探索经历，不用“费劲”等认知描述代替情绪回应；Task先接纳无聊，再探索任务意义。以学生最新表达为准，不强迫讨论情绪。
 - 没有触发项时采用 Positive/开放回顾，不据此断言学生开心、有收获或能力很强。允许学生说没有收获或不想回答。
 - 一次只聚焦一个对象；学生后续明确指出其他需要时，以其最新表达为准。评分作为线索，不压过学生解释。
 - 平台传入 strategy、四项原始分数、已完成活动、真实交付与计算证据及当前话语。模型不自行计分、解锁活动或更改学习状态。
@@ -50,4 +50,8 @@ Positive：邀请学生回顾有收获、比较顺利或值得再想一想的地
 
 智谱/Z.AI官方端点上的GLM-5.3系列不支持关闭思考，因此请求reasoning_effort=low；支持关闭思考的GLM-5.2等已列明型号传thinking.type=disabled。其他模型/供应商不盲目发送GLM专用参数。独立reasoning_content不展示给学生。
 
-前端只传 measurement_id，后端验证会话、活动和C班来源，读取数据库原始评分及关联交付，再计算策略。聊天 context 保存 measurement_id、submission_id、评分、策略、策略版本与 generation_attempts，prompt_version 为 meaning-making-v1。自动开场的 question_source=platform，学生追问为student；自动请求记录 reflection_opening_requested，不计作学生主动求助。
+前端只传 measurement_id，后端验证会话、活动和C班来源，读取数据库原始评分及关联交付，再计算策略。聊天 context 保存 measurement_id、submission_id、评分、策略、策略版本与 generation_attempts，prompt_version 为 meaning-making-v2。自动开场的 question_source=platform，学生追问为student；自动请求记录 reflection_opening_requested，不计作学生主动求助。
+
+## v2 策略执行约束
+
+运行时在活动事实背景之后单独展开选中的策略指令，明确策略决定回应目标。Experience 开场先回应沮丧，再询问具体困难经历；尚未了解经历时，不转为排序依据或解题思路追问，不用认真、努力等表扬代替回应挫折。后续接受学生纠正并优先回应其最新表达。以上是提示词约束，不代表已对真实模型回复完成语义校验。

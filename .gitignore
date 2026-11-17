@@ -11,4 +11,5 @@ __pycache__/
 backend/data/
 .tools/
 test-results/
+scripts/load_tests/
 *.tsbuildinfo

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,9 +44,12 @@ def frames(response):
     ({'difficulty':1,'boredom':1,'frustration':1,'self_efficacy':2},'Self'),
     ({'difficulty':3,'boredom':3,'frustration':3,'self_efficacy':3},'Positive'),
     ({'difficulty':5,'boredom':5,'frustration':5,'self_efficacy':1},'Experience'),
-    ({'difficulty':5,'boredom':5,'frustration':4,'self_efficacy':1},'Self'),
-    ({'difficulty':5,'boredom':5,'frustration':1,'self_efficacy':5},'Content'),
-    ({'difficulty':4,'boredom':5,'frustration':4,'self_efficacy':2},'Task'),
+    ({'difficulty':5,'boredom':5,'frustration':4,'self_efficacy':1},'Experience'),
+    ({'difficulty':5,'boredom':5,'frustration':1,'self_efficacy':5},'Task'),
+    ({'difficulty':4,'boredom':5,'frustration':4,'self_efficacy':2},'Experience'),
+    ({'difficulty':5,'boredom':4,'frustration':1,'self_efficacy':1},'Task'),
+    ({'difficulty':5,'boredom':3,'frustration':3,'self_efficacy':2},'Self'),
+    ({'difficulty':4,'boredom':4,'frustration':4,'self_efficacy':2},'Experience'),
 ])
 def test_strategy_selection(ratings,expected):
     assert meaning_making.select_strategy(ratings)==expected
@@ -73,13 +77,69 @@ def test_prompt_uses_owned_ratings_and_saved_evidence(client,monkeypatch):
         assert context['question_source']=='platform'
         assert context['measured_submission']['correct'] is True
         assert context['measured_submission']['student_result']['order']==['data','count','centers','calculate']
-        assert row['prompt_version']=='meaning-making-v1' and len(row['answer'])<=100
+        assert row['prompt_version']==meaning_making.PROMPT_VERSION and len(row['answer'])<=100
         assert db.execute("SELECT COUNT(*) FROM teaching_events WHERE type='reflection_opening_requested'").fetchone()[0]==1
     ask(client,saved['id'],purpose='question')
     with store.connection() as db:
         contexts=[json.loads(row[0]) for row in db.execute('SELECT context FROM teaching_chats')]
         assert all(row['meaning_making']['strategy']=='Content' for row in contexts)
         assert any(row['question_source']=='student' for row in contexts)
+
+
+def test_tied_ratings_send_explicit_experience_guidance(client,monkeypatch):
+    saved=measurement(client,ratings={'difficulty':4,'boredom':4,'frustration':4,'self_efficacy':2})
+    calls=[]
+    class Model:
+        async def astream(self,messages):
+            calls.append(messages)
+            yield AIMessageChunk(content='遇到困难时感到沮丧，是可以理解的。刚才哪个时刻让你有这种感受？')
+    monkeypatch.setattr(chat,'make_model',lambda:Model())
+    assert frames(ask(client,saved['id']))[-1]['type']=='done'
+    prompt=calls[0][0].content
+    assert '本轮执行策略：Experience' in prompt
+    assert meaning_making.STRATEGY_GUIDANCE['Experience'] in prompt
+    assert meaning_making.STRATEGY_GUIDANCE['Content'] not in prompt
+    assert prompt.index('本轮执行策略：Experience') > prompt.index('当前活动要求')
+    assert '{{activity_rules}}' not in prompt and '{{context}}' not in prompt
+    assert '信息科学课的学习伙伴' in prompt
+    assert '不用“我很在意”' in prompt
+    assert '示例中的活动和感受不能当作当前学生的事实' in prompt
+    with store.connection() as db:
+        row=db.execute('SELECT context,prompt_version FROM teaching_chats').fetchone()
+        assert json.loads(row['context'])['meaning_making']['strategy']=='Experience'
+        assert row['prompt_version']==meaning_making.PROMPT_VERSION
+
+
+def test_dialogue_cycles_two_inquiries_then_guidance(client,monkeypatch):
+    saved=measurement(client)
+    calls=[]
+    class Model:
+        async def astream(self,messages):
+            calls.append(messages)
+            yield AIMessageChunk(content='测试回复。')
+    monkeypatch.setattr(chat,'make_model',lambda:Model())
+    # Exceeds the 12-row history window: cadence must use all completed turns.
+    for turn in range(1,16):
+        assert frames(ask(client,saved['id'],purpose='reflection_opening' if turn==1 else 'question'))[-1]['type']=='done'
+        expected='guidance' if turn%3==0 else 'inquiry'
+        assert meaning_making.RESPONSE_MODES[expected] in calls[-1][0].content
+    with store.connection() as db:
+        contexts=[json.loads(row[0])['meaning_making'] for row in db.execute('SELECT context FROM teaching_chats ORDER BY created,id')]
+        assert sorted(c['dialogue_turn'] for c in contexts)==list(range(1,16))
+        assert sum(c['response_mode']=='guidance' for c in contexts)==5
+        db.execute("UPDATE teaching_chats SET status='error'")
+    # Failed/paused replies must not consume a turn.
+    body=chat.ChatInput(activity_id='explain_algorithm',question='继续',context={'phase':'dialogue','measurement_id':saved['id']})
+    context,_=chat.learning_context(H['X-Session-ID'],body)
+    assert context['meaning_making']['dialogue_turn']==1
+    with store.connection() as db:
+        db.execute("UPDATE teaching_chats SET status='completed'")
+    body.context.screen='introduction'
+    context,_=chat.learning_context(H['X-Session-ID'],body)
+    assert context['meaning_making']['dialogue_turn']==1
+    other=measurement(client)
+    ask(client,other['id'])
+    assert meaning_making.RESPONSE_MODES['inquiry'] in calls[-1][0].content
 
 
 def test_measurement_cannot_be_cross_used_or_applied_to_b(client,monkeypatch):
@@ -98,6 +158,32 @@ def test_measurement_cannot_be_cross_used_or_applied_to_b(client,monkeypatch):
     response=client.post(ROOT+'/chat',headers=other,json={'activity_id':'explain_algorithm','question':'解释一下？'})
     assert frames(response)[-1]['type']=='done'
     assert len(''.join(e['data']['text'] for e in frames(response) if e['type']=='delta'))>100
+
+
+@pytest.mark.parametrize('fail',[False,True])
+def test_finish_write_runs_outside_stream_event_loop(client,monkeypatch,fail):
+    saved=measurement(client)
+    loop_threads=[]
+    write_threads=[]
+    original=chat.save_finish
+    class Model:
+        async def astream(self,messages):
+            loop_threads.append(threading.get_ident())
+            yield AIMessageChunk(content='已生成的正文。')
+            if fail:
+                raise RuntimeError('test failure')
+    def finish(*args,**kwargs):
+        write_threads.append(threading.get_ident())
+        return original(*args,**kwargs)
+    monkeypatch.setattr(chat,'make_model',lambda:Model())
+    monkeypatch.setattr(chat,'save_finish',finish)
+    result=frames(ask(client,saved['id']))
+    assert result[-1]['type']==('error' if fail else 'done')
+    assert len(write_threads)==1 and write_threads[0]!=loop_threads[0]
+    with store.connection() as db:
+        row=db.execute('SELECT answer,status FROM teaching_chats').fetchone()
+        assert row['answer']=='已生成的正文。'
+        assert row['status']==('error' if fail else 'completed')
 
 
 def test_c_reply_streams_before_model_finishes(client,monkeypatch):

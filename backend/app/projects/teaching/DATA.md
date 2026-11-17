@@ -71,6 +71,44 @@
 
 一份活动交付只保存一份测量；同内容重试返回原记录，改变已保存评分或复用请求编号到另一交付返回409，不覆盖历史。新交付可以关联新测量。数据独立保存在 teaching_state_measurements，不能访问其他会话的交付。
 
+### 调查编号、版本与作答时间
+
+原表保留，并增量添加下列字段。每次调查指四题全部答完且服务器保存成功的一份记录，不是单独一个滑块，也不是按钮点击次数。
+
+| 字段 | 定义 |
+| --- | --- |
+| student_survey_no | 同 project＋source_route＋班级＋学号的累计调查次序，从1开始，跨会话延续；A/B/C入口分别计数 |
+| session_survey_no | 本次学习会话第几次调查，从1开始；正常完成三个活动通常为1、2、3 |
+| activity_survey_no | 本会话内当前活动第几次调查，重复有效交付后继续累计 |
+| activity_number | 活动1、2或3；不能拿它代替调查次序 |
+| survey_phase | 当前为 post_activity，即活动交付后的测量 |
+| questionnaire_version | 新界面使用 learning-state-v3，四题原始分数独立保存，不求总分、不反转存储第4题；未传版本的旧客户端继续按v1保存 |
+| response_mode | 新界面为 slider-5point-v1，表示1–5整数滑块 |
+| started_at | 浏览器创建本次调查窗口的时间，规范化保存为UTC；客户端时钟，仅用于辅助分析 |
+| response_duration_ms | 从窗口创建到首次完整作答并点击保存的经过时间，由performance计时；首次有效请求后冻结，网络重试不会延长或覆盖 |
+| created | 后端成功保存时间，UTC；记录排序和编号以服务端为准，不依赖客户端时钟 |
+
+数据库写事务 BEGIN IMMEDIATE 内分配编号并保存，三个计数范围各有唯一索引。重复request_id或相同交付的幂等重试返回原记录、原编号和原时间信息。
+
+初始化会升级现有表；旧记录首次按created/id顺序补编号，之后不重新编号。无法确认的旧问卷版本、交互方式写为legacy-unspecified，缺失的开始时间、耗时保持NULL。原ID、原评分、原交付关联和原保存时间不变。
+
+查看或导出可使用只读视图 `teaching_state_measurement_records`，将ratings JSON展开为difficulty、boredom、frustration、self_efficacy四列，并将created显示为submitted_at：
+
+```sql
+SELECT class_name,student_number,source_route,session,
+       student_survey_no,session_survey_no,activity_survey_no,activity_number,
+       difficulty,boredom,frustration,self_efficacy,
+       questionnaire_version,response_mode,submitted_at,response_duration_ms
+FROM teaching_state_measurement_records
+ORDER BY submitted_at,id;
+```
+
+学生标识沿用班级＋学号，入口标识用于区分A/B/C组；会话ID区分同一学生的多次学习。新增字段不需要向学生展示，不增加问卷界面内容。
+
+问卷v2：第1题保持原陈述，五级选项为“完全不符合、不太符合、一般、比较符合、完全符合”；第2、3题保持原无聊/沮丧陈述，选项为“一点也不、有一点、中等程度、比较强烈、非常强烈”；第4题改为“对于完成接下来的学习任务，你有多大信心？”，选项为“完全没信心、不太有信心、有一些信心、比较有信心、非常有信心”。每题各自显示一行选项，仍存1–5整数。
+
+v1为原四个陈述及统一“非常不同意、不同意、既不同意也不反对、同意、非常同意”选项。v3前三题保持原文，第4题改为“对于完成接下来的学习任务，我很有信心。”，统一选项为“非常不同意、不太同意、有点同意、比较同意、非常同意”，四题共用顶部一行说明。v1/v2历史记录不改写；同一次交付已有已知版本的测量，不允许以其他版本覆盖。分析时按版本区分。
+
 C班聚焦交流传入 context.measurement_id，由后端读取评分与交付并选择Content/Task/Experience/Self/Positive；不接受前端自报策略或评分。开场purpose=reflection_opening、question_source=platform；追问为question/student。聊天context保留关联ID、策略和版本、实际交付摘要、generation_attempts=1和delivery=streaming。按最新要求，C班收到正文立即流式转发，不等待整段校验、不额外重写、不按字符截断；100字保留为提示词生成目标。A班没有模型，B班继续普通教学对话，不使用评分策略。
 
 ## 查询示例

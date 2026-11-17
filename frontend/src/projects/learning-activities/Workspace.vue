@@ -55,7 +55,7 @@ watch(()=>[registered.value,state.value.sessionId,state.value.activeActivityId],
 
 <template>
   <div class="activities-page">
-    <header class="activities-header"><RouterLink to="/">← 返回首页</RouterLink><span>图书分类学习活动</span><button v-if="registered" @click="reviewing=true">查看学习记录</button></header>
+<header class="activities-header"><div aria-hidden="true"></div><span>图书分类学习活动</span><button v-if="registered" @click="reviewing=true">查看学习记录</button></header>
     <main>
       <section v-if="!registered" class="registration" aria-label="填写学习信息">
         <span class="eyebrow">图书分类 · 三个学习活动</span><h1>准备开始学习</h1><p>从五本书的分组出发，整理计算方法，再探索二维数据。</p>
@@ -64,7 +64,7 @@ watch(()=>[registered.value,state.value.sessionId,state.value.activeActivityId],
       <template v-else>
         <div class="student-info">{{state.student!.className}} · 学号 {{state.student!.studentNumber}}</div>
         <nav class="activity-tabs" aria-label="学习活动"><button v-for="item in records" :key="item.id" :disabled="saving||taskBusy||!canEnter(state,item.id)" :aria-current="activity.id===item.id?'step':undefined" @click="go(item.id)">{{titles[item.id]}}<span v-if="item.state.submissions.some(s=>s.kind==='learning_result'&&(item.id!=='explain_algorithm'||s.payload.sorting?.correct))"> ✓</span></button></nav>
-        <section v-if="reflection" class="reflection-focus" aria-label="活动回顾"><span>活动后的学习感受</span><h1>{{titles[reflection.activityId]}}已提交</h1><p>{{reflection.measured?'你的学习感受已经记录。可以回顾刚才的过程，再继续学习。':'请先完成刚才学习感受的四题测量。'}}</p><button class="primary" :disabled="!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button></section>
+        <section v-if="reflection" class="reflection-focus" aria-label="活动回顾"><span v-if="!(reflection.activityId==='explore_2d'&&reflection.measured)">活动后的学习感受</span><h1>{{titles[reflection.activityId]}}已提交</h1><p>{{reflection.measured?(reflection.activityId==='explore_2d'?'接下来按老师要求完成活动四，并提交学习任务单。':'你的学习感受已经记录。可以回顾刚才的过程，再继续学习。'):'请先完成刚才学习感受的四题测量。'}}</p><button class="primary" :disabled="!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button></section>
         <template v-else>
         <section class="activity-heading"><h1>{{titles[activity.id]}}</h1><p>{{instructions[activity.id]}}</p></section>
         <CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @busy="taskBusy=$event" @result="calculated" @submitted="calculationSubmitted" @restored="saved=>{recordCalculation(state,saved,false);persist()}"/>

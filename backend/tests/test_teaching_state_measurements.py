@@ -84,3 +84,53 @@ def test_activity_one_final_submission_can_be_measured(client):
     saved=client.post(path+'/submissions',headers=H,json={'result_id':step['id'],'counts':[3,2],'centers':step['centers_after']}).json()
     response=measure(client,saved['id'])
     assert response.status_code==200 and response.json()['activity_id']=='group_books'
+
+
+def test_survey_numbers_span_sessions_and_keep_entry_groups_separate(client):
+    first=measure(client,sorting(client)['id']).json()
+    assert (first['student_survey_no'],first['session_survey_no'],first['activity_survey_no'],first['activity_number'])==(1,1,1,2)
+    second=measure(client,sorting(client)['id'],request='measurement-2').json()
+    assert (second['student_survey_no'],second['session_survey_no'],second['activity_survey_no'])==(2,2,2)
+    other=client.post(ROOT+'/activities/explain_algorithm/submissions',headers=OTHER,json={'order':['data','count','centers','calculate']}).json()
+    third=measure(client,other['id'],headers=OTHER).json()
+    assert (third['student_survey_no'],third['session_survey_no'],third['activity_survey_no'])==(3,1,1)
+    b_headers={'X-Session-ID':'another-entry-session-0001'}
+    client.post(ROOT+'/student',headers=b_headers,json={'class_name':'C班','student_number':'001','source_route':'teaching-agent'})
+    b_submission=client.post(ROOT+'/activities/explain_algorithm/submissions',headers=b_headers,json={'order':['data','count','centers','calculate']}).json()
+    b=measure(client,b_submission['id'],headers=b_headers).json()
+    assert b['student_survey_no']==1
+    with store.connection() as db:
+        rows=db.execute('SELECT * FROM teaching_state_measurement_records ORDER BY submitted_at').fetchall()
+        assert len(rows)==4 and rows[0]['difficulty']==4 and rows[0]['self_efficacy']==5
+        assert rows[0]['questionnaire_version']=='learning-state-v1'
+
+
+def test_survey_timing_and_retries_preserve_original_metadata(client):
+    submission=sorting(client)
+    body={'submission_id':submission['id'],'request_id':'timed-survey','ratings':RATINGS,
+          'started_at':'2026-11-17T10:00:00+08:00','response_duration_ms':12345,'response_mode':'slider-5point-v1'}
+    first=client.post(ROOT+'/state-measurements',headers=H,json=body).json()
+    assert first['started_at']=='2026-11-17T02:00:00+00:00'
+    assert first['response_duration_ms']==12345 and first['response_mode']=='slider-5point-v1'
+    assert first['survey_phase']=='post_activity'
+    retry=client.post(ROOT+'/state-measurements',headers=H,json={**body,'response_duration_ms':20000}).json()
+    assert retry==first
+    for invalid in [-1,True,1.5]:
+        assert client.post(ROOT+'/state-measurements',headers=H,json={**body,'response_duration_ms':invalid}).status_code==422
+
+
+def test_legacy_survey_migration_preserves_answers_and_stable_numbers(tmp_path,monkeypatch):
+    from app.projects.teaching import measurements
+    monkeypatch.setenv('DATABASE_PATH',str(tmp_path/'old-surveys.db'))
+    with store.connection() as db:
+        db.execute('''CREATE TABLE teaching_state_measurements(id TEXT PRIMARY KEY,project TEXT,session TEXT,class_name TEXT,student_number TEXT,source_route TEXT,activity TEXT,submission_id TEXT,ratings TEXT,created TEXT,request_id TEXT)''')
+        for id,session in [('old-1','session-1'),('old-2','session-1'),('old-3','session-2')]:
+            db.execute('INSERT INTO teaching_state_measurements VALUES(?,?,?,?,?,?,?,?,?,?,?)',(id,'teaching-agent',session,'七年级1班','001','meaning-making','group_books',id,json.dumps(RATINGS),'2026-11-17T00:00:00+00:00',id))
+        measurements.init(db)
+        first=[dict(r) for r in db.execute('SELECT * FROM teaching_state_measurements ORDER BY id')]
+        assert [r['student_survey_no'] for r in first]==[1,2,3]
+        assert [r['session_survey_no'] for r in first]==[1,2,1]
+        assert all(json.loads(r['ratings'])==RATINGS and r['started_at'] is None and r['response_duration_ms'] is None for r in first)
+        assert all(r['questionnaire_version']=='legacy-unspecified' for r in first)
+        measurements.init(db)
+        assert [dict(r) for r in db.execute('SELECT * FROM teaching_state_measurements ORDER BY id')]==first
