@@ -2,6 +2,7 @@
 import asyncio
 
 from playwright.async_api import async_playwright, expect
+from teaching_measurement_helpers import complete_self_report
 
 
 async def main():
@@ -14,9 +15,10 @@ async def main():
             await page.goto(f'http://127.0.0.1:5174/projects/{project}')
             await page.get_by_label('班级', exact=True).fill('分组流程测试班')
             await page.get_by_label('学号', exact=True).fill('001')
+            await page.get_by_role('button', name='确认并继续', exact=True).click()
+            await complete_self_report(page)
             if project != 'learning-activities':
-                await page.get_by_role('button', name='确认并继续', exact=True).click()
-            await page.get_by_role('button', name='进入活动1', exact=True).click()
+                await page.get_by_role('button', name='进入活动1', exact=True).click()
             card = page.get_by_role('region', name='分组计算')
             await card.locator('.center-inputs input').nth(0).fill('2')
             await card.locator('.center-inputs input').nth(1).fill('11')

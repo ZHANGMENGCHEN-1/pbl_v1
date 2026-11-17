@@ -39,6 +39,18 @@ def init():
         CREATE TABLE IF NOT EXISTS teaching_round_answers(id TEXT PRIMARY KEY,project TEXT,session TEXT,result_id TEXT,payload TEXT,created TEXT,class_name TEXT,student_number TEXT,request_id TEXT,attempt_no INTEGER);
         CREATE TABLE IF NOT EXISTS teaching_state_measurements(id TEXT PRIMARY KEY,project TEXT NOT NULL,session TEXT NOT NULL,class_name TEXT NOT NULL,student_number TEXT NOT NULL,source_route TEXT NOT NULL,activity TEXT NOT NULL,submission_id TEXT NOT NULL,ratings TEXT NOT NULL,created TEXT NOT NULL,request_id TEXT NOT NULL,UNIQUE(project,session,submission_id),UNIQUE(project,session,request_id));
         CREATE INDEX IF NOT EXISTS teaching_measurements_student ON teaching_state_measurements(class_name,student_number,created);
+        CREATE TABLE IF NOT EXISTS teaching_self_reports(id TEXT PRIMARY KEY,project TEXT NOT NULL,session TEXT NOT NULL,class_name TEXT NOT NULL,student_number TEXT NOT NULL,source_route TEXT NOT NULL,ratings TEXT NOT NULL,created TEXT NOT NULL,request_id TEXT NOT NULL,started_at TEXT,response_duration_ms INTEGER,questionnaire_version TEXT NOT NULL,response_mode TEXT NOT NULL,UNIQUE(project,session),UNIQUE(project,session,request_id));
+        CREATE INDEX IF NOT EXISTS teaching_self_reports_student ON teaching_self_reports(class_name,student_number,created);
+        CREATE VIEW IF NOT EXISTS teaching_self_report_records AS
+            SELECT id,project,class_name,student_number,source_route,session,
+                   json_extract(ratings,'$.value_importance') AS value_importance,
+                   json_extract(ratings,'$.interest') AS interest,
+                   json_extract(ratings,'$.knowledge_importance') AS knowledge_importance,
+                   json_extract(ratings,'$.performance_efficacy') AS performance_efficacy,
+                   json_extract(ratings,'$.difficult_knowledge_efficacy') AS difficult_knowledge_efficacy,
+                   json_extract(ratings,'$.overall_efficacy') AS overall_efficacy,
+                   started_at,created AS submitted_at,response_duration_ms,questionnaire_version,response_mode,request_id
+            FROM teaching_self_reports;
         ''')
         measurements.init(db)
         for table in ('teaching_submissions', 'teaching_chats', 'teaching_steps', 'teaching_datasets', 'teaching_analyses'):
@@ -183,6 +195,55 @@ class StateMeasurementInput(BaseModel):
     response_duration_ms: StrictInt | None = Field(default=None, ge=0)
     response_mode: Literal['slider-5point-v1'] | None = None
     questionnaire_version: Literal['learning-state-v1', 'learning-state-v2', 'learning-state-v3'] = 'learning-state-v1'
+
+
+class SelfReportRatings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    value_importance: StrictInt = Field(ge=1, le=5)
+    interest: StrictInt = Field(ge=1, le=5)
+    knowledge_importance: StrictInt = Field(ge=1, le=5)
+    performance_efficacy: StrictInt = Field(ge=1, le=5)
+    difficult_knowledge_efficacy: StrictInt = Field(ge=1, le=5)
+    overall_efficacy: StrictInt = Field(ge=1, le=5)
+
+
+class SelfReportInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    ratings: SelfReportRatings
+    request_id: str = Field(min_length=1, max_length=80)
+    started_at: AwareDatetime | None = None
+    response_duration_ms: StrictInt | None = Field(default=None, ge=0)
+    response_mode: Literal['slider-5point-v1'] = 'slider-5point-v1'
+    questionnaire_version: Literal['learning-self-report-v1'] = 'learning-self-report-v1'
+
+
+def self_report_response(row):
+    return {'id': row['id'], 'created': row['created'], 'ratings': json.loads(row['ratings']),
+            **{key: row[key] for key in ('questionnaire_version', 'response_mode', 'started_at', 'response_duration_ms')}}
+
+
+@router.post('/self-report')
+def save_self_report(body: SelfReportInput, x_session_id: str = Header(default='')):
+    session = session_id(x_session_id)
+    with store.connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        identity = db.execute('SELECT class_name,student_number,source_route FROM teaching_students WHERE project=? AND session=?', (PROJECT, session)).fetchone()
+        if not identity:
+            raise HTTPException(409, '请先填写班级和学号。')
+        ratings = body.ratings.model_dump()
+        existing = db.execute('SELECT * FROM teaching_self_reports WHERE project=? AND session=?', (PROJECT, session)).fetchone()
+        if existing:
+            if json.loads(existing['ratings']) != ratings or existing['questionnaire_version'] != body.questionnaire_version:
+                raise HTTPException(409, '本次自我报告已保存，请勿覆盖已提交的回答。')
+            return self_report_response(existing)
+        id = str(uuid4())
+        db.execute('''INSERT INTO teaching_self_reports(id,project,session,class_name,student_number,source_route,ratings,created,request_id,started_at,response_duration_ms,questionnaire_version,response_mode)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                   (id, PROJECT, session, identity['class_name'], identity['student_number'], identity['source_route'], json.dumps(ratings), store.now(), body.request_id,
+                    body.started_at.astimezone(timezone.utc).isoformat() if body.started_at else None, body.response_duration_ms, body.questionnaire_version, body.response_mode))
+        event(db, session, 'self_report_submitted', None, id, {'questionnaire_version': body.questionnaire_version})
+        saved = db.execute('SELECT * FROM teaching_self_reports WHERE id=?', (id,)).fetchone()
+    return self_report_response(saved)
 
 
 @router.post('/state-measurements')

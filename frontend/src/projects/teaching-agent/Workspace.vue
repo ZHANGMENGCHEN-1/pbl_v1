@@ -16,6 +16,7 @@ import {algorithmSteps} from './sorting'
 import type { ActivityId } from './activities'
 import {saveSorting,recordActivityEntry} from './telemetry'
 import StateMeasurement from '../teaching-shared/StateMeasurement.vue'
+import SelfReport from '../teaching-shared/SelfReport.vue'
 
 const {state,activity,current,count,complete,records,saveError,persist,enter:enterActivity,reset}=useTeachingLearning()
 const {messages,draft,busy,thinking,mood,canSend,send,stop,error:chatError,retry:retryChat}=useTeachingChat(state,persist,()=>operationOpen.value?'task':'dialogue',()=>operationOpen.value?'task':reflection.value?'reflection':'introduction')
@@ -27,6 +28,7 @@ function calculated(result:Calculation){current.value.operation={status:result.c
 function calculationSubmitted(saved:CalculationSubmission){recordCalculation(state.value,saved,false);persist();calculationHint.value='';beginReflection('group_books',saved.id)}
 const entry=ref<'hello'|'story'|'learning'>('hello'),bubbleVisible=ref(false),operationOpen=ref(false)
 const className=ref(''),studentNumber=ref(''),identitySaving=ref(false),identityError=ref('')
+const selfReportOpen=ref(false)
 const sortingSaving=ref(false),sortingError=ref(''),sortingCorrect=ref<boolean|null>(null)
 const reflection=ref<{activityId:ActivityId;submissionId:string;measured:boolean}|null>(null)
 function beginReflection(activityId:ActivityId,submissionId:string){
@@ -52,9 +54,10 @@ async function identify(){
     const data=await response.json()
     if(!response.ok)throw new Error(typeof data?.detail==='string'?data.detail:'保存失败，请重试。')
     state.value.student={className:data.class_name,studentNumber:data.student_number}
-    persist();entry.value='story'
+    persist();selfReportOpen.value=true
   }catch(e){identityError.value=e instanceof Error?e.message:'连接失败，请重试。'}finally{identitySaving.value=false}
 }
+function selfReportSaved(){selfReportOpen.value=false;entry.value='story'}
 // With the task closed, return to the same conversation composition as the opening.
 const dialogueFocus=computed(()=>entry.value==='learning'&&!operationOpen.value)
 const recordsOpen=ref(false),historyOpen=ref(false),input=ref<HTMLTextAreaElement>()
@@ -119,7 +122,7 @@ function menu(command:string){
             <button class="primary-response" :disabled="identitySaving">{{identitySaving?'正在保存…':'确认并继续'}}</button>
           </form>
           <button v-else-if="entry==='story'" class="primary-response" @click="start">进入活动1</button>
-          <button v-else-if="reflection" class="primary-response" :disabled="busy||!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button>
+          <button v-else-if="reflection" v-show="reflection.activityId!=='group_books'" class="primary-response" :disabled="busy||!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button>
           <button v-else-if="!operationOpen&&!complete" class="primary-response" :class="{'enter-activity-two':activity.id==='explain_algorithm'}" :disabled="busy" @click="openTask">{{activity.id==='explain_algorithm'?'进入活动2':operationLabel}}</button>
         </div>
         <template v-if="entry==='learning'">
@@ -131,6 +134,7 @@ function menu(command:string){
       </div>
     </main>
     <StateMeasurement v-if="reflection&&!reflection.measured" :key="reflection.submissionId" :session-id="state.sessionId" :activity-id="reflection.activityId" :submission-id="reflection.submissionId" @saved="measurementSaved"/>
+    <SelfReport v-if="selfReportOpen" :session-id="state.sessionId" @saved="selfReportSaved"/>
     <el-drawer v-model="historyOpen" title="对话记录" size="min(560px, 92vw)" class="minimal-history"><article v-for="message in messages" :key="message.id" class="history-message" :class="message.role"><small>{{message.role==='assistant'?'小知':'我'}}</small><p>{{message.text}}</p><small v-if="message.paused">已暂停</small><small v-if="message.error">{{message.error}}</small></article></el-drawer>
     <el-drawer v-model="recordsOpen" title="学习记录" size="min(560px, 92vw)" class="teaching-records"><p class="records-explanation">活动1保存你的填写结果与实际计算结果。活动2保存每次排序及反馈，活动3保存你填写的数量与分组特点。</p><article v-for="item in records" :key="item.id" class="teaching-record-card"><h3>{{item.title}}</h3><p>{{item.state.submissions.length?(item.id==='group_books'?'已提交':'已体验'):canEnter(state,item.id)?'还没有体验':'稍后开始'}}</p><section v-for="record in item.state.submissions" :key="record.id" class="preview-submission"><time>{{new Date(record.createdAt).toLocaleString('zh-CN')}}</time><div v-if="record.payload.calculation"><p>我的填写：两组各{{record.payload.calculation.payload.student_result.counts.join('、')}}本；中心{{record.payload.calculation.payload.student_result.centers.join('、')}}。</p><details><summary>查看实际计算</summary><p>两组各{{record.payload.calculation.payload.tool_result.counts.join('、')}}本；中心{{record.payload.calculation.payload.tool_result.centers.join('、')}}。</p></details></div><div v-if="record.payload.sorting"><p>我的排序：{{record.payload.sorting.order.map(id=>algorithmSteps.find(s=>s.id===id)?.text).join(' → ')}}</p><p>{{record.payload.sorting.feedback}}</p></div><div v-if="record.payload.exploration"><p>文件：{{record.payload.exploration.payload.teaching_context.filename}}</p><p>分析列：{{record.payload.exploration.payload.features.map(f=>f.name).join('、')}}</p><p>我的填写：两组各{{record.payload.exploration.payload.student_result.counts.join('、')}}条。</p><p>{{record.payload.exploration.payload.student_result.description}}</p></div><p v-if="record.payload.note">{{record.payload.note}}</p></section><button :disabled="busy||!canEnter(state,item.id)" @click="review(item.id)">回到这里</button></article></el-drawer>
   </div>

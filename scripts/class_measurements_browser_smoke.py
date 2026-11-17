@@ -6,7 +6,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from playwright.async_api import async_playwright, expect
-from teaching_measurement_helpers import complete_survey, set_rating
+from teaching_measurement_helpers import complete_self_report, complete_survey, set_rating
 
 
 async def main():
@@ -21,7 +21,8 @@ async def main():
             await page.get_by_label('班级',exact=True).fill(class_name)
             await page.get_by_label('学号',exact=True).fill('009')
             robot=slug!='learning-activities'
-            await page.get_by_role('button',name='确认并继续' if robot else '进入活动1',exact=True).click()
+            await page.get_by_role('button',name='确认并继续',exact=True).click()
+            await complete_self_report(page)
             if robot:await page.get_by_role('button',name='进入活动1',exact=True).click()
             card=page.get_by_role('region',name='分组计算')
             await card.get_by_role('button',name='计算这一轮',exact=True).click()

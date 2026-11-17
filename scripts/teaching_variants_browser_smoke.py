@@ -7,7 +7,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from playwright.async_api import async_playwright, expect
-from teaching_measurement_helpers import complete_survey
+from teaching_measurement_helpers import complete_self_report, complete_survey
 
 BASE = 'http://127.0.0.1:5174'
 
@@ -15,7 +15,8 @@ BASE = 'http://127.0.0.1:5174'
 async def identify(page, direct=False):
     await page.get_by_label('班级', exact=True).fill('七年级1班')
     await page.get_by_label('学号', exact=True).fill('001')
-    await page.get_by_role('button', name='进入活动1' if direct else '确认并继续', exact=True).click()
+    await page.get_by_role('button', name='确认并继续', exact=True).click()
+    await complete_self_report(page)
 
 
 async def arrange(task, desired):

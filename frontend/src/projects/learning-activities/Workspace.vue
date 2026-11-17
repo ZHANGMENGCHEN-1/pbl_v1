@@ -10,9 +10,11 @@ import type {Calculation,CalculationSubmission} from './calculation'
 import type {Analysis,ExplorationSubmission} from './exploration'
 import {saveSorting,recordActivityEntry} from './telemetry'
 import StateMeasurement from '../teaching-shared/StateMeasurement.vue'
+import SelfReport from '../teaching-shared/SelfReport.vue'
 
 const {state,activity,current,records,complete,enter:enterActivity,persist}=useTeachingLearning()
 const className=ref(''),studentNumber=ref(''),saving=ref(false),error=ref('')
+const selfReportOpen=ref(false)
 const sortingCorrect=ref<boolean|null>(null),reviewing=ref(false)
 const taskBusy=ref(false)
 const reflection=ref<{activityId:ActivityId;submissionId:string;measured:boolean}|null>(null)
@@ -35,9 +37,10 @@ async function identify(){
     const response=await fetch('/api/projects/teaching-agent/student',{method:'POST',headers:{'Content-Type':'application/json','X-Session-ID':state.value.sessionId},body:JSON.stringify({class_name:className.value.trim(),student_number:studentNumber.value.trim(),source_route:'learning-activities'})})
     const data=await response.json()
     if(!response.ok)throw new Error(typeof data?.detail==='string'?data.detail:'保存失败，请重试。')
-    state.value.student={className:data.class_name,studentNumber:data.student_number};persist()
+    state.value.student={className:data.class_name,studentNumber:data.student_number};persist();selfReportOpen.value=true
   }catch(e){error.value=e instanceof Error?e.message:'连接失败，请重试。'}finally{saving.value=false}
 }
+function selfReportSaved(){selfReportOpen.value=false}
 function calculated(result:Calculation){current.value.operation={status:result.converged?'completed':'pending',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};persist()}
 function calculationSubmitted(saved:CalculationSubmission){recordCalculation(state.value,saved,false);persist();beginReflection('group_books',saved.id)}
 async function submitOrder(order:string[]){
@@ -50,7 +53,7 @@ function explorationChanged(){current.value.operation={status:'pending',source:'
 function explorationCalculated(result:Analysis){current.value.operation={status:'completed',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};persist()}
 function explorationSubmitted(saved:ExplorationSubmission){recordExploration(state.value,saved,current.value.operation.result as unknown as Analysis);persist();beginReflection('explore_2d',saved.id)}
 function go(id:ActivityId){if(saving.value||taskBusy.value||(reflection.value&&!reflection.value.measured))return;if(enterActivity(id)){reflection.value=null;error.value='';sortingCorrect.value=null;window.scrollTo({top:0,behavior:'smooth'})}}
-watch(()=>[registered.value,state.value.sessionId,state.value.activeActivityId],()=>{if(registered.value)void recordActivityEntry(state.value.sessionId,state.value.activeActivityId)})
+watch(()=>[registered.value,selfReportOpen.value,state.value.sessionId,state.value.activeActivityId],()=>{if(registered.value&&!selfReportOpen.value)void recordActivityEntry(state.value.sessionId,state.value.activeActivityId)})
 </script>
 
 <template>
@@ -59,12 +62,12 @@ watch(()=>[registered.value,state.value.sessionId,state.value.activeActivityId],
     <main>
       <section v-if="!registered" class="registration" aria-label="填写学习信息">
         <span class="eyebrow">图书分类 · 三个学习活动</span><h1>准备开始学习</h1><p>从五本书的分组出发，整理计算方法，再探索二维数据。</p>
-        <form @submit.prevent="identify"><label for="student-class">班级<input id="student-class" v-model="className" maxlength="80" placeholder="例如：七年级1班" required :disabled="saving"></label><label for="student-number">学号<input id="student-number" v-model="studentNumber" maxlength="40" placeholder="请输入学号" required :disabled="saving"></label><p v-if="error" role="alert">{{error}}</p><button class="primary" :disabled="saving">{{saving?'正在保存…':'进入活动1'}}</button></form>
+        <form @submit.prevent="identify"><label for="student-class">班级<input id="student-class" v-model="className" maxlength="80" placeholder="例如：七年级1班" required :disabled="saving"></label><label for="student-number">学号<input id="student-number" v-model="studentNumber" maxlength="40" placeholder="请输入学号" required :disabled="saving"></label><p v-if="error" role="alert">{{error}}</p><button class="primary" :disabled="saving">{{saving?'正在保存…':'确认并继续'}}</button></form>
       </section>
       <template v-else>
         <div class="student-info">{{state.student!.className}} · 学号 {{state.student!.studentNumber}}</div>
-        <nav class="activity-tabs" aria-label="学习活动"><button v-for="item in records" :key="item.id" :disabled="saving||taskBusy||!canEnter(state,item.id)" :aria-current="activity.id===item.id?'step':undefined" @click="go(item.id)">{{titles[item.id]}}<span v-if="item.state.submissions.some(s=>s.kind==='learning_result'&&(item.id!=='explain_algorithm'||s.payload.sorting?.correct))"> ✓</span></button></nav>
-        <section v-if="reflection" class="reflection-focus" aria-label="活动回顾"><span v-if="!(reflection.activityId==='explore_2d'&&reflection.measured)">活动后的学习感受</span><h1>{{titles[reflection.activityId]}}已提交</h1><p>{{reflection.measured?(reflection.activityId==='explore_2d'?'接下来按老师要求完成活动四，并提交学习任务单。':'你的学习感受已经记录。可以回顾刚才的过程，再继续学习。'):'请先完成刚才学习感受的四题测量。'}}</p><button class="primary" :disabled="!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button></section>
+        <nav class="activity-tabs" aria-label="学习活动"><button v-for="item in records" :key="item.id" :disabled="saving||taskBusy||item.id==='explain_algorithm'||!canEnter(state,item.id)" :aria-current="activity.id===item.id?'step':undefined" @click="go(item.id)">{{titles[item.id]}}<span v-if="item.state.submissions.some(s=>s.kind==='learning_result'&&(item.id!=='explain_algorithm'||s.payload.sorting?.correct))"> ✓</span></button></nav>
+        <section v-if="reflection" class="reflection-focus" aria-label="活动回顾"><span v-if="!(reflection.activityId==='explore_2d'&&reflection.measured)">活动后的学习感受</span><h1>{{titles[reflection.activityId]}}已提交</h1><p>{{reflection.measured?(reflection.activityId==='explore_2d'?'接下来按老师要求完成活动四，并提交学习任务单。':'你的学习感受已经记录。可以回顾刚才的过程，再继续学习。'):'请先完成刚才学习感受的四题测量。'}}</p><button v-show="reflection.activityId!=='group_books'" class="primary" :disabled="!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button></section>
         <template v-else>
         <section class="activity-heading"><h1>{{titles[activity.id]}}</h1><p>{{instructions[activity.id]}}</p></section>
         <CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @busy="taskBusy=$event" @result="calculated" @submitted="calculationSubmitted" @restored="saved=>{recordCalculation(state,saved,false);persist()}"/>
@@ -76,6 +79,7 @@ watch(()=>[registered.value,state.value.sessionId,state.value.activeActivityId],
       </template>
     </main>
     <StateMeasurement v-if="reflection&&!reflection.measured" :key="reflection.submissionId" :session-id="state.sessionId" :activity-id="reflection.activityId" :submission-id="reflection.submissionId" :with-robot="false" @saved="measurementSaved"/>
+    <SelfReport v-if="selfReportOpen" :session-id="state.sessionId" @saved="selfReportSaved"/>
     <el-drawer v-model="reviewing" title="学习记录" direction="rtl" size="min(560px, 92vw)" class="activity-records-drawer">
         <section class="learning-records" aria-label="学习记录"><h2>本次学习记录</h2><article v-for="item in records" :key="item.id"><h3>{{titles[item.id]}}</h3><p v-if="!item.state.submissions.length">还没有提交。</p><div v-for="record in item.state.submissions" :key="record.id" class="record"><time>{{new Date(record.createdAt).toLocaleString('zh-CN')}}</time><p v-if="record.payload.calculation">我的填写：两组各{{record.payload.calculation.payload.student_result.counts.join('、')}}本；中心{{record.payload.calculation.payload.student_result.centers.join('、')}}。</p><template v-if="record.payload.sorting"><p>我的排序：{{record.payload.sorting.order.join(' → ')}}</p><p>{{record.payload.sorting.feedback}}</p></template><template v-if="record.payload.exploration"><p>两组数量：{{record.payload.exploration.payload.student_result.counts.join('、')}}。</p><p>{{record.payload.exploration.payload.student_result.description}}</p></template></div></article></section>
     </el-drawer>

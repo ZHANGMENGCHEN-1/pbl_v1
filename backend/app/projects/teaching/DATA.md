@@ -24,6 +24,7 @@
 | teaching_datasets | 一次成功上传 | 文件、数据版本和解析结果 |
 | teaching_analyses | 一次真实二维分析 | 数据集及版本、所选列和分组结果 |
 | teaching_events | 一次关键过程事件 | 身份、activity、type、reference_id、data、created |
+| teaching_self_reports | 一个会话一份课前六题自我报告 | 身份、source_route、六题原始评分、created、request_id、问卷版本与作答耗时 |
 | teaching_state_measurements | A/B/C班一次有效交付后的四题状态测量 | 身份、source_route、activity、submission_id、ratings、created、request_id |
 
 时间均为后端 UTC ISO 8601。展示时转换为北京时间。聊天 `created` 表示后端接受有效提问并创建记录的时间，`first_response_at` 是首段正文到达时间；无正文时为 NULL，`finished` 为终态保存时间。不记录推理内容。
@@ -58,6 +59,7 @@
 | chat_finished | 后端保存问答终态，关联 chat ID |
 | chat_pause_requested | 显式暂停，关联 chat ID |
 | operation_failed | 已登记会话的教学 POST 返回 HTTP 4xx/5xx；保存路径和状态码，不存供应商敏感错误 |
+| self_report_submitted | 三班课前六题自我报告保存成功，关联 self-report ID |
 | state_measurement_submitted | 三班四题1–5分自评保存成功，关联 measurement ID 与 submission_id |
 | reflection_opening_requested | C班测量保存后平台请求模型开场，关联 chat ID；不计作学生主动求助 |
 
@@ -65,7 +67,9 @@
 事件是历史事实，例如 cancelled 后才收到暂停通知，chat_finished 事件可能仍描述先前状态；当前最终状态以 teaching_chats 为准。
 浏览器本地校验未发请求的错误、未送达服务器的断网请求不在 operation_failed 范围。
 
-## A/B/C班状态测量与C班模型策略
+## A/B/C班课前自我报告、状态测量与C班模型策略
+
+`POST /api/projects/teaching-agent/self-report` 在班级、学号登记后、进入学习活动前使用。请求含 request_id、started_at、response_duration_ms，以及六个 1–5 整数评分：value_importance、interest、knowledge_importance、performance_efficacy、difficult_knowledge_efficacy、overall_efficacy。三个入口共用同一问卷和接口，source_route 由后端登记身份读取。同一会话只保存一份报告；相同内容重试返回原记录，改变已保存答案或问卷版本返回 409。数据保存在 teaching_self_reports；视图 teaching_self_report_records 将六题展开为独立列。
 
 `POST /api/projects/teaching-agent/state-measurements` 接受登记 source_route 为 learning-activities（A班）、teaching-agent（B班）、meaning-making（C班）的会话。请求含本会话的 submission_id、request_id 以及四个原始整数评分 difficulty、boredom、frustration、self_efficacy，各为1–5；不计算总分，不反转存储第4题。活动2仅排序正确的交付可以提交结束测量。
 
@@ -120,6 +124,18 @@ SELECT session,activity,attempt_no,id,result_id,payload,created
 FROM teaching_submissions
 WHERE class_name=? AND student_number=?
 ORDER BY created,id;
+```
+
+查看学生的课前自我报告：
+
+```sql
+SELECT class_name,student_number,source_route,session,
+       value_importance,interest,knowledge_importance,performance_efficacy,
+       difficult_knowledge_efficacy,overall_efficacy,
+       questionnaire_version,response_mode,started_at,submitted_at,response_duration_ms
+FROM teaching_self_report_records
+WHERE class_name=? AND student_number=?
+ORDER BY submitted_at,id;
 ```
 
 查看某会话时间线和问答：

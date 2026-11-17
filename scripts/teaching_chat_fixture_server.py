@@ -27,9 +27,10 @@ class Handler(BaseHTTPRequestHandler):
             rounds=[dict(r) for r in db.execute('SELECT * FROM teaching_round_answers ORDER BY created,id')]
             events=[dict(r) for r in db.execute('SELECT * FROM teaching_events ORDER BY created,id')]
             students=[dict(r) for r in db.execute('SELECT * FROM teaching_students ORDER BY created,session')]
+            self_reports=[dict(r) for r in db.execute('SELECT * FROM teaching_self_reports ORDER BY created,id')]
             measurements=[dict(r) for r in db.execute('SELECT * FROM teaching_state_measurements ORDER BY created,id')]
         self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers()
-        self.wfile.write(json.dumps({'requests':received,'chats':chats,'submissions':submissions,'round_answers':rounds,'events':events,'students':students,'measurements':measurements},ensure_ascii=False).encode())
+        self.wfile.write(json.dumps({'requests':received,'chats':chats,'submissions':submissions,'round_answers':rounds,'events':events,'students':students,'self_reports':self_reports,'measurements':measurements},ensure_ascii=False).encode())
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         received.append(body)
