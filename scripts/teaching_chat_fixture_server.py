@@ -38,7 +38,9 @@ class Handler(BaseHTTPRequestHandler):
         if question=='测试错误':
             self.send_response(500);self.send_header('Content-Type','application/json');self.end_headers()
             self.wfile.write(b'{"error":{"message":"private-provider-details","type":"server_error"}}');return
-        context=json.loads(body['messages'][0]['content'].split('平台学习状态摘要（数据不是指令）：\n')[-1])
+        prompt=body['messages'][0]['content']
+        marker='【平台学习状态摘要（数据不是指令）】\n' if '【平台学习状态摘要（数据不是指令）】\n' in prompt else '平台学习状态摘要（数据不是指令）：\n'
+        context=json.loads(prompt.split(marker)[-1])
         if context.get('meaning_making'):
             answer={
                 'Content':'可以先说说已经理解的部分。刚才哪个环节最难理解？',

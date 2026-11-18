@@ -1,64 +1,27 @@
 <script setup lang="ts">
-import {computed,ref,watch} from 'vue'
-import CenterExperiment from './CenterExperiment.vue'
-import AlgorithmSteps from './AlgorithmSteps.vue'
-import ExcelExperiment from './ExcelExperiment.vue'
+import CenterExperiment from '../../courses/kmeans/components/CenterExperiment.vue'
+import AlgorithmSteps from '../../courses/kmeans/components/AlgorithmSteps.vue'
+import ExcelExperiment from '../../courses/kmeans/components/ExcelExperiment.vue'
 import {useTeachingLearning} from './useTeachingLearning'
-import {canEnter,recordCalculation,recordStepOrder,recordExploration} from './learningState'
-import type {ActivityId} from './activities'
-import type {Calculation,CalculationSubmission} from './calculation'
-import type {Analysis,ExplorationSubmission} from './exploration'
-import {saveSorting,recordActivityEntry} from './telemetry'
-import StateMeasurement from '../teaching-shared/StateMeasurement.vue'
-import SelfReport from '../teaching-shared/SelfReport.vue'
+import type {ActivityId} from '../../shared/teaching/activityTypes'
+import StateMeasurement from '../../shared/components/teaching/StateMeasurement.vue'
+import SelfReport from '../../shared/components/teaching/SelfReport.vue'
+import {useTeachingFlow,teachingConditions} from '../../shared/composables/teaching/useTeachingFlow'
 
-const {state,activity,current,records,complete,enter:enterActivity,persist}=useTeachingLearning()
-const className=ref(''),studentNumber=ref(''),saving=ref(false),error=ref('')
-const selfReportOpen=ref(false)
-const sortingCorrect=ref<boolean|null>(null),reviewing=ref(false)
-const taskBusy=ref(false)
-const reflection=ref<{activityId:ActivityId;submissionId:string;measured:boolean}|null>(null)
-function beginReflection(activityId:ActivityId,submissionId:string){reflection.value={activityId,submissionId,measured:false};window.scrollTo({top:0,behavior:'smooth'})}
-function measurementSaved(){if(reflection.value)reflection.value.measured=true}
-function continueReflection(){
-  if(!reflection.value?.measured)return
-  if(reflection.value.activityId==='explore_2d'){reviewing.value=true;return}
-  go(reflection.value.activityId==='group_books'?'explain_algorithm':'explore_2d')
-}
-const registered=computed(()=>!!state.value.student)
+const {
+  state, activity, current, records, complete, className,
+  studentNumber, saving, error, selfReportOpen, sortingCorrect, taskBusy,
+  reflection, registered, recordsOpen:reviewing, navigationBlocked, canEnter, identify,
+  selfReportSaved, measurementSaved, continueReflection, calculated, restoredCalculation, calculationSubmitted,
+  submitOrder, explorationChanged, explorationCalculated, explorationSubmitted, go
+}=useTeachingFlow({learning:useTeachingLearning(),condition:teachingConditions.A})
 const titles:Record<ActivityId,string>={group_books:'活动1：给五本书分组',explain_algorithm:'活动2：整理分组的方法',explore_2d:'活动3：探索二维分组'}
 const instructions:Record<ActivityId,string>={group_books:'选择两个开始的中心，逐轮比较距离和分组。分组稳定后，填写两组数量和最后的中心，提交后进入活动2。',explain_algorithm:'把四张卡片按先后顺序排列并提交。排序正确后，可以进入活动3。',explore_2d:'上传Excel表格，选择两列数据并运行分组，再填写两组数量和特点，完成最后的交付。'}
-async function identify(){
-  if(saving.value)return
-  error.value=''
-  if(!className.value.trim()||!studentNumber.value.trim()){error.value='请填写班级和学号。';return}
-  saving.value=true
-  try{
-    const response=await fetch('/api/projects/teaching-agent/student',{method:'POST',headers:{'Content-Type':'application/json','X-Session-ID':state.value.sessionId},body:JSON.stringify({class_name:className.value.trim(),student_number:studentNumber.value.trim(),source_route:'learning-activities'})})
-    const data=await response.json()
-    if(!response.ok)throw new Error(typeof data?.detail==='string'?data.detail:'保存失败，请重试。')
-    state.value.student={className:data.class_name,studentNumber:data.student_number};persist();selfReportOpen.value=true
-  }catch(e){error.value=e instanceof Error?e.message:'连接失败，请重试。'}finally{saving.value=false}
-}
-function selfReportSaved(){selfReportOpen.value=false}
-function calculated(result:Calculation){current.value.operation={status:result.converged?'completed':'pending',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};persist()}
-function calculationSubmitted(saved:CalculationSubmission){recordCalculation(state.value,saved,false);persist();beginReflection('group_books',saved.id)}
-async function submitOrder(order:string[]){
-  if(saving.value)return
-  saving.value=true;error.value='';sortingCorrect.value=null
-  try{const saved=await saveSorting(state.value.sessionId,order);recordStepOrder(state.value,order,saved);sortingCorrect.value=saved.payload.correct;persist();if(saved.payload.correct)beginReflection('explain_algorithm',saved.id)}
-  catch(e){error.value=e instanceof Error?e.message:'保存失败，请重试。'}finally{saving.value=false}
-}
-function explorationChanged(){current.value.operation={status:'pending',source:'backend',result:null,updatedAt:null}}
-function explorationCalculated(result:Analysis){current.value.operation={status:'completed',source:'backend',result:result as unknown as Record<string,unknown>,updatedAt:new Date().toISOString()};persist()}
-function explorationSubmitted(saved:ExplorationSubmission){recordExploration(state.value,saved,current.value.operation.result as unknown as Analysis);persist();beginReflection('explore_2d',saved.id)}
-function go(id:ActivityId){if(saving.value||taskBusy.value||(reflection.value&&!reflection.value.measured))return;if(enterActivity(id)){reflection.value=null;error.value='';sortingCorrect.value=null;window.scrollTo({top:0,behavior:'smooth'})}}
-watch(()=>[registered.value,selfReportOpen.value,state.value.sessionId,state.value.activeActivityId],()=>{if(registered.value&&!selfReportOpen.value)void recordActivityEntry(state.value.sessionId,state.value.activeActivityId)})
 </script>
 
 <template>
   <div class="activities-page">
-<header class="activities-header"><div aria-hidden="true"></div><span>图书分类学习活动</span><div v-if="registered" class="header-actions"><nav class="header-activities" aria-label="学习活动"><button v-for="(item,index) in records" :key="item.id" :title="titles[item.id]" :disabled="saving||taskBusy||(reflection&&!reflection.measured)||!canEnter(state,item.id)" :aria-current="activity.id===item.id?'step':undefined" @click="go(item.id)">活动{{index+1}}<span v-if="item.state.submissions.some(s=>s.kind==='learning_result'&&(item.id!=='explain_algorithm'||s.payload.sorting?.correct))"> ✓</span></button></nav><button class="records-button" @click="reviewing=true">查看学习记录</button></div></header>
+<header class="activities-header"><div aria-hidden="true"></div><span>图书分类学习活动</span><div v-if="registered" class="header-actions"><nav class="header-activities" aria-label="学习活动"><button v-for="(item,index) in records" :key="item.id" :title="titles[item.id]" :disabled="navigationBlocked||!canEnter(item.id)" :aria-current="activity.id===item.id?'step':undefined" @click="go(item.id)">活动{{index+1}}<span v-if="item.state.submissions.some(s=>s.kind==='learning_result'&&(item.id!=='explain_algorithm'||s.payload.sorting?.correct))"> ✓</span></button></nav><button class="records-button" @click="reviewing=true">查看学习记录</button></div></header>
     <main>
       <section v-if="!registered" class="registration" aria-label="填写学习信息">
         <span class="eyebrow">图书分类 · 三个学习活动</span><h1>准备开始学习</h1><p>从五本书的分组出发，整理计算方法，再探索二维数据。</p>
@@ -70,8 +33,8 @@ watch(()=>[registered.value,selfReportOpen.value,state.value.sessionId,state.val
         <section v-if="reflection" class="reflection-focus" aria-label="活动回顾"><span v-if="!(reflection.activityId==='explore_2d'&&reflection.measured)">活动后的学习感受</span><h1>{{titles[reflection.activityId]}}已提交</h1><p>{{reflection.measured?(reflection.activityId==='explore_2d'?'接下来按老师要求完成活动四，并提交学习任务单。':'你的学习感受已经记录。可以回顾刚才的过程，再继续学习。'):'请先完成刚才学习感受的四题测量。'}}</p><button class="primary" :disabled="!reflection.measured" @click="continueReflection">{{reflection.activityId==='group_books'?'继续前往活动2':reflection.activityId==='explain_algorithm'?'继续前往活动3':'查看学习记录'}}</button></section>
         <template v-else>
         <section class="activity-heading"><h1>{{titles[activity.id]}}</h1><p>{{instructions[activity.id]}}</p></section>
-        <CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @busy="taskBusy=$event" @result="calculated" @submitted="calculationSubmitted" @restored="saved=>{recordCalculation(state,saved,false);persist()}"/>
-        <template v-else-if="activity.id==='explain_algorithm'"><AlgorithmSteps :draft="current.draft" :disabled="saving" :submitted-correct="sortingCorrect" @submit="submitOrder"/><p v-if="current.submissions.at(-1)?.payload.sorting" class="sorting-feedback" role="status">{{current.submissions.at(-1)!.payload.sorting!.feedback}}</p><div class="next-activity"><button v-if="canEnter(state,'explore_2d')" class="primary" :disabled="saving" @click="go('explore_2d')">进入活动3 →</button></div></template>
+        <CenterExperiment v-if="activity.id==='group_books'" :session-id="state.sessionId" :draft="current.draft" @busy="taskBusy=$event" @result="calculated" @submitted="calculationSubmitted" @restored="restoredCalculation"/>
+        <template v-else-if="activity.id==='explain_algorithm'"><AlgorithmSteps :draft="current.draft" :disabled="saving" :submitted-correct="sortingCorrect" @submit="submitOrder"/><p v-if="current.submissions.at(-1)?.payload.sorting" class="sorting-feedback" role="status">{{current.submissions.at(-1)!.payload.sorting!.feedback}}</p><div class="next-activity"><button v-if="canEnter('explore_2d')" class="primary" :disabled="saving" @click="go('explore_2d')">进入活动3 →</button></div></template>
         <ExcelExperiment v-else :session-id="state.sessionId" :draft="current.draft" @busy="taskBusy=$event" @changed="explorationChanged" @result="explorationCalculated" @submitted="explorationSubmitted"/>
         <p v-if="error" role="alert">{{error}}</p>
         <section v-if="complete" class="completion" role="status"><strong>三个活动都已完成！</strong><p>你的学习交付已保存，可以查看学习记录或返回前面的活动继续尝试。</p></section>

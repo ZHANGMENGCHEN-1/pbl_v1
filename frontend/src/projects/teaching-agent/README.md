@@ -1,6 +1,8 @@
 # 教学Agent：前三个活动
 
-B班在每个活动有效提交后进入小知聚焦界面并弹出四题状态测量。保存后可与小知普通交流或前往下一活动，不应用C班的意义建构策略，也不自动调用模型。状态测量组件位于 `../teaching-shared/StateMeasurement.vue`。
+通用界面、状态与流程位于 [`../../shared`](../../shared/teaching/README.md)，实验组件、接口和活动文案位于 [`../../courses/kmeans`](../../courses/kmeans/README.md)。`Workspace.vue` 是固定B条件的入口，加载共用的 `CompanionLayout.vue`；测量后显示完成提示、不自动开启讨论。普通问答、流式回复和布局也与C班共用实现，计算、上传或保存期间禁止切换活动。
+
+B班在每个活动有效提交后进入小知聚焦界面并弹出四题状态测量。保存后显示完成提示，可前往下一活动；不显示讨论输入框、不自动调用模型，也不应用C班的意义建构策略。活动操作期间仍可主动提问。
 
 路由`/projects/teaching-agent`。保留Three.js小知与气泡。活动1是真实单轮计算；活动2支持随机初始化、拖动排序和规则反馈；活动3支持上传Excel、预览、二维K-means、散点图及并排提交。学生提问现通过后端同一个LLM流式回复；开场、任务提示与排序反馈仍为预设说明。教学规则、上下文和接口见[小知对话说明](../../../../backend/app/projects/teaching/CHAT.md)。
 
@@ -22,12 +24,11 @@ B班在每个活动有效提交后进入小知聚焦界面并弹出四题状态�
 
 ## 文件
 
-- `Workspace.vue`：任务/对话模式、气泡引导、活动推进和本次学习记录。
-- `learningState.ts` / `useTeachingLearning.ts`：草稿、操作、真实提交快照、当前会话状态；每次刷新重建。
-- `CenterExperiment.vue` / `calculation.ts`：活动1真实计算与手填交付。
-- `AlgorithmSteps.vue` / `sorting.ts`：活动2拖动、规则反馈、每次尝试记录。
-- `ExcelExperiment.vue` / `exploration.ts`：活动3上传、预览、选列、运行、并排提交、接口类型。
-- `ScatterPlot.vue`：实际二维散点图、中心和原记录查看。
+- `routes.ts` / `Workspace.vue`：B班固定网址和条件入口。
+- `useTeachingLearning.ts`：B班会话配置，调用共用状态逻辑；每次刷新重建。
+- [`../../shared/components/teaching/CompanionLayout.vue`](../../shared/components/teaching/CompanionLayout.vue)：共用小知界面。
+- [`../../shared`](../../shared/teaching/README.md)：通用界面、状态、流程、问答和机器人模型。
+- [`../../courses/kmeans`](../../courses/kmeans/README.md)：K-means实验组件、文案和专用接口。
 - `backend/app/projects/teaching/routes.py`：活动1计算与SQLite存储。
 - `backend/app/projects/teaching/excel.py`：隔离上传、解析、选列诊断、真实K-means和交付保存。
 

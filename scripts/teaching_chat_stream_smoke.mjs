@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import ts from '../frontend/node_modules/typescript/lib/typescript.js'
-const source=fs.readFileSync(new URL('../frontend/src/projects/teaching-agent/chatStream.ts',import.meta.url),'utf8')
+const source=fs.readFileSync(new URL('../frontend/src/shared/teaching/chatStream.ts',import.meta.url),'utf8')
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
 const module={exports:{}}
 new Function('module','exports',code)(module,module.exports)

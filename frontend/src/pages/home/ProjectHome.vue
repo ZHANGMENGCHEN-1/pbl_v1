@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowRight, Position } from '@element-plus/icons-vue'
-import TeachingRobot from '../../projects/teaching-agent/TeachingRobot.vue'
+import TeachingRobot from '../../shared/components/teaching/robot/TeachingRobot.vue'
 
 const projects = [
   { id: 'teaching-agent', number: '01', title: 'B班', theme: 'teaching', tag: '对话与陪伴', description: '和学习搭子小知聊一聊，拆解任务、寻找思路，一起发现下一步。', topics: ['学习计划', '问题引导', '回顾收获'] },

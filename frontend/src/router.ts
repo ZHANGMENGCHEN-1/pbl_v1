@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { routes as astronomyRoutes } from './projects/astronomy/routes'
 import { routes as libraryRoutes } from './projects/library/routes'
 import { routes as teachingRoutes } from './projects/teaching-agent/routes'
-import { routes as teachingCopyRoutes } from './projects/teaching-agent-copy/routes'
+import { routes as meaningMakingRoutes } from './projects/meaning-making/routes'
 import { routes as activityRoutes } from './projects/learning-activities/routes'
 
 export default createRouter({
@@ -12,7 +12,7 @@ export default createRouter({
     ...astronomyRoutes,
     ...libraryRoutes,
     ...teachingRoutes,
-    ...teachingCopyRoutes,
+    ...meaningMakingRoutes,
     ...activityRoutes,
     { path: '/:pathMatch(.*)*', component: () => import('./pages/NotFound.vue') },
   ],

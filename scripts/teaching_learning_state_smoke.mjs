@@ -5,18 +5,19 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import ts from '../frontend/node_modules/typescript/lib/typescript.js'
 
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../frontend/src/projects/teaching-agent')
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../frontend/src')
 const cache=new Map()
-function load(name){
-  const file=path.resolve(root,name.endsWith('.ts')?name:name+'.ts')
+function load(name,from=root){
+  const file=path.resolve(from,name.endsWith('.ts')?name:name+'.ts')
   if(cache.has(file))return cache.get(file)
   const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
   const module={exports:{}};cache.set(file,module.exports)
-  new Function('module','exports','require',code)(module,module.exports,dependency=>load(dependency))
+  new Function('module','exports','require',code)(module,module.exports,dependency=>load(dependency,path.dirname(file)))
   return module.exports
 }
 
-const {createSession,canEnter,enterActivity,submitPreview,submittedCount,restoreSession,recordCalculation,recordStepOrder,recordExploration}=load('learningState')
+const {activities}=load('courses/kmeans/activities')
+const {createSession,canEnter,enterActivity,submitPreview,submittedCount,restoreSession,recordCalculation,recordStepOrder,recordExploration}=load('shared/teaching/learningState').createLearningModel(activities)
 const state=createSession()
 assert.equal(canEnter(state,'explain_algorithm'),false)
 assert.throws(()=>submitPreview(state))
@@ -47,7 +48,7 @@ const invalid=createSession();invalid.activeActivityId='explore_2d'
 assert.equal(restoreSession(invalid),null)
 console.log('Passed: real calculation evidence required, immutable submissions, idempotent restore, stage unlock and persistence.')
 
-const {shuffledSteps,checkStepOrder}=load('sorting')
+const {shuffledSteps,checkStepOrder}=load('courses/kmeans/sorting')
 const canonical=['data','count','centers','calculate']
 for(let i=0;i<100;i++){
   const shuffled=shuffledSteps()
@@ -72,7 +73,7 @@ assert.equal(state.activities.explore_2d.submissions[0].payload.operation.result
 recordExploration(state,submission,analysis)
 assert.equal(state.activities.explore_2d.submissions.length,1)
 console.log('Passed: actual Excel submission completes third activity, retains distinct student answers and freezes evidence.')
-const {axisScale}=load('axisScale')
+const {axisScale}=load('courses/kmeans/axisScale')
 for(const values of [[0,174],[2,18],[.1,.3],[0,0],[-5,20],[-8,-2]]){
   const axis=axisScale(values)
   assert.ok(axis.max>axis.min)
