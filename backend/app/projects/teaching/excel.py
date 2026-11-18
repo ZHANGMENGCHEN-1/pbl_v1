@@ -245,8 +245,8 @@ class ResultInput(BaseModel):
 def submit(body: ResultInput, x_session_id: str = Header(default='')):
     session = session_id(x_session_id)
     description = body.description.strip()
-    if sum(not char.isspace() for char in description) < 10:
-        raise HTTPException(422, '反思内容请至少填写10个字（不含空白）。')
+    if not description:
+        raise HTTPException(422, '请填写两组的特点。')
     with store.connection() as db:
         db.execute('BEGIN IMMEDIATE')
         result = owned_analysis(db, session, body.result_id)

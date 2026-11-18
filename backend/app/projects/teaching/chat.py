@@ -83,7 +83,7 @@ def learning_context(session, body):
             measurement = db.execute('SELECT * FROM teaching_state_measurements WHERE id=? AND project=? AND session=? AND activity=?', (current.measurement_id, PROJECT, session, body.activity_id)).fetchone()
             if not measurement:
                 raise HTTPException(404, '找不到当前活动的状态测量。')
-            if measurement['source_route'] != 'meaning-making' or current.phase != 'dialogue':
+            if measurement['source_route'] != 'meaning-making' or current.phase != 'dialogue' or context['current_task']['screen'] != 'reflection':
                 raise HTTPException(403, '当前测量不用于意义建构对话。')
             context['meaning_making'] = {'measurement_id': measurement['id'], 'submission_id': measurement['submission_id'], 'questionnaire_version': measurement['questionnaire_version'], 'ratings': json.loads(measurement['ratings']), 'strategy_version': meaning_making.PROMPT_VERSION, 'generation_attempts': 1, 'delivery': 'streaming'}
             context['meaning_making']['strategy'] = meaning_making.select_strategy(context['meaning_making']['ratings'])
@@ -94,7 +94,7 @@ def learning_context(session, body):
                 (PROJECT, session, body.activity_id, current.measurement_id, context['current_task']['screen'])).fetchone()[0]
             turn = completed + 1
             context['meaning_making']['dialogue_turn'] = turn
-            context['meaning_making']['response_mode'] = 'guidance' if turn % 3 == 0 else 'inquiry'
+            context['meaning_making']['response_mode'] = meaning_making.response_mode(turn)
             context['question_source'] = 'platform' if body.purpose == 'reflection_opening' else 'student'
         if body.activity_id == 'group_books':
             context['books'] = BOOKS

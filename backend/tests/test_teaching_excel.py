@@ -138,3 +138,6 @@ def test_submission_validation_and_multiple_rows(client):
     assert result['sample_count']==150 and sum(g['count'] for g in result['groups'])==150
     for counts,description in [([1,1],'有特点'),([True,149],'有特点'),([-1,151],'有特点'),([75,75],'   ')]:
         assert client.post(BASE+'/submissions',headers=H,json={'result_id':result['id'],'counts':counts,'description':description}).status_code==422
+    response=client.post(BASE+'/submissions',headers=H,json={'result_id':result['id'],'counts':[75,75],'description':'一组大，一组小'})
+    assert response.status_code==200
+    assert response.json()['payload']['student_result']['description']=='一组大，一组小'

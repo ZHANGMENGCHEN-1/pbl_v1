@@ -1,6 +1,8 @@
 # C班：意义建构策略提示词（已接入）
 
-C班在状态测量保存成功后自动生成第一轮“回应＋追问”，之后的聚焦交流继续携带本次测量。策略选择和运行时提示词位于 `backend/app/projects/teaching/meaning_making.py`，当前版本 `meaning-making-v4`，以下system prompt代码块为早期示意，运行时以Python文件为准。A班无模型交互；B班使用原有普通教学对话，不应用C班策略。
+C班（G3）仅在每个活动结束后的状态测量讨论中使用三轮结构：第1轮引导觉察，第2轮结合学生表达引导解释，第3轮提供简短、可纠正的引导性解释，不再追问；第4轮起自由对话，不循环前三轮。自动开场计第1轮，仅完成的回复计数，每份测量独立计数。所有策略（Content、Task、Self、Experience、Positive）共用此结构，各自保留关注目标。学生拒答或提出具体问题时尊重并直接回应，不强迫按流程回答。
+
+策略选择和运行时提示词位于 `backend/app/projects/teaching/meaning_making.py`，当前版本 `meaning-making-v7`，以下system prompt代码块为早期示意，运行时以Python文件为准。A班无模型交互；B班和G3活动内问答使用普通教学对话，不应用此结构。
 
 ## 测量
 

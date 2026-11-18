@@ -110,7 +110,7 @@ def test_tied_ratings_send_explicit_experience_guidance(client,monkeypatch):
         assert row['prompt_version']==meaning_making.PROMPT_VERSION
 
 
-def test_dialogue_cycles_two_inquiries_then_guidance(client,monkeypatch):
+def test_dialogue_awareness_interpretation_guidance_then_open(client,monkeypatch):
     saved=measurement(client)
     calls=[]
     class Model:
@@ -121,12 +121,13 @@ def test_dialogue_cycles_two_inquiries_then_guidance(client,monkeypatch):
     # Exceeds the 12-row history window: cadence must use all completed turns.
     for turn in range(1,16):
         assert frames(ask(client,saved['id'],purpose='reflection_opening' if turn==1 else 'question'))[-1]['type']=='done'
-        expected='guidance' if turn%3==0 else 'inquiry'
+        expected={1:'awareness',2:'interpretation',3:'guidance'}.get(turn,'open')
         assert meaning_making.RESPONSE_MODES[expected] in calls[-1][0].content
     with store.connection() as db:
         contexts=[json.loads(row[0])['meaning_making'] for row in db.execute('SELECT context FROM teaching_chats ORDER BY created,id')]
         assert sorted(c['dialogue_turn'] for c in contexts)==list(range(1,16))
-        assert sum(c['response_mode']=='guidance' for c in contexts)==5
+        assert sum(c['response_mode']=='guidance' for c in contexts)==1
+        assert sum(c['response_mode']=='open' for c in contexts)==12
         db.execute("UPDATE teaching_chats SET status='error'")
     # Failed/paused replies must not consume a turn.
     body=chat.ChatInput(activity_id='explain_algorithm',question='继续',context={'phase':'dialogue','measurement_id':saved['id']})
@@ -135,11 +136,12 @@ def test_dialogue_cycles_two_inquiries_then_guidance(client,monkeypatch):
     with store.connection() as db:
         db.execute("UPDATE teaching_chats SET status='completed'")
     body.context.screen='introduction'
-    context,_=chat.learning_context(H['X-Session-ID'],body)
-    assert context['meaning_making']['dialogue_turn']==1
+    with pytest.raises(chat.HTTPException) as error:
+        chat.learning_context(H['X-Session-ID'],body)
+    assert error.value.status_code==403
     other=measurement(client)
     ask(client,other['id'])
-    assert meaning_making.RESPONSE_MODES['inquiry'] in calls[-1][0].content
+    assert meaning_making.RESPONSE_MODES['awareness'] in calls[-1][0].content
 
 
 def test_measurement_cannot_be_cross_used_or_applied_to_b(client,monkeypatch):
